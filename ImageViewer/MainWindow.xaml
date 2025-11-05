@@ -1,0 +1,80 @@
+﻿<Window x:Class="ImageViewer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" 
+		xmlns:ImageViewer="clr-namespace:ImageViewer" 
+		
+		Title="MainWindow" Height="350" Width="525" Name="MainForm" WindowState="Maximized">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="20" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid Background="Gray">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="20"/>
+                <!-- Scale label -->
+                <ColumnDefinition Width="Auto"/>
+                <!-- Scale slider -->
+                <ColumnDefinition Width="120"/>
+                <!-- Path label -->
+                <ColumnDefinition Width="Auto"/>
+                <!-- Path TextBox (fills remaining space) -->
+                <ColumnDefinition Width="*"/>
+                <!-- Browse button -->
+                <ColumnDefinition Width="Auto"/>
+                <!-- Recurse label -->
+                <ColumnDefinition Width="Auto"/>
+                <!-- Recurse checkbox -->
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Button Name="BtnBgColor" Width="20" Height="20" Click="BtnBgColor_Click" MouseRightButtonUp="BtnBgColor_MouseRightButtonUp"
+                ToolTip="Change background color">
+                <Button.Template>
+                    <ControlTemplate>
+                        <Border x:Name="border" Background="{Binding Background, RelativeSource={RelativeSource AncestorType=Button}}"
+                    BorderBrush="Black" BorderThickness="1" CornerRadius="2"/>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+            <TextBlock Grid.Column="1" Text="Scale" VerticalAlignment="Center" Margin="2,0,4,0"/>
+            <Slider x:Name="SD_Scale" Grid.Column="2" VerticalAlignment="Center" Maximum="4.0" Minimum="0.1" Value="1.0" Margin="0,0,10,0" MouseDoubleClick="SD_Scale_MouseDoubleClick" MouseRightButtonUp="SD_Scale_MouseRightButtonUp"/>
+            
+
+            <TextBlock Grid.Column="3" Text="Path" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <ComboBox x:Name="CB_Path" MinWidth="100" Grid.Column="4" Grid.Row="0" Margin="5" IsEditable="True" KeyDown="CB_Path_KeyDown" DropDownClosed="CB_Path_DropDownClosed"  SelectionChanged="CB_Path_SelectionChanged"/>
+            
+            
+            <Button Grid.Column="5" Content="Browse..." Width="55" Margin="4,0,10,0"/>
+
+            <TextBlock Grid.Column="6" Text="Recurse" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <CheckBox Name="CB_Recurse" Grid.Column="7" VerticalAlignment="Center"
+              Checked="CB_Recurse_Changed" Unchecked="CB_Recurse_Changed"/>
+        </Grid>
+
+        <!--<ScrollViewer CanContentScroll="True" ScrollChanged="LV_ScrollChanged">-->
+        <ListView Name="LV" Background="AliceBlue" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" SelectionMode="Multiple" HorizontalAlignment="Center">
+            HorizontalAlignment="Stretch"
+          VerticalAlignment="Stretch"
+            <ListView.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <ImageViewer:SmartFlowPanel/>
+                </ItemsPanelTemplate>
+            </ListView.ItemsPanel>
+        </ListView>
+        <!--</ScrollViewer>-->
+
+
+        <StatusBar Grid.Row="2" Grid.Column="0">
+            <StatusBarItem>
+                <TextBlock Width="30" Name="SB_Info1"/>
+            </StatusBarItem>
+            <StatusBarItem>
+                <TextBlock Width="250" Name="SB_Info2"/>
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window>
