@@ -22,6 +22,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <CheckBox Grid.Row="0" Grid.ColumnSpan="2" Name="CHK_Recurse" Content="Search subdirectories (recursion)"
@@ -71,6 +72,15 @@
                         ValueChanged="SL_Undershoot_ValueChanged"
                         ToolTip="When scroll-by-image pages through an image taller than the window, each notch moves one viewport height MINUS this overlap so a strip of the previous screen stays visible for orientation. Row-to-row snapping is unaffected."/>
                 <TextBlock Name="TB_Undershoot" Width="50" Margin="6,0,0,0" VerticalAlignment="Center" Text="10 %"/>
+            </StackPanel>
+
+            <TextBlock Grid.Row="9" Grid.Column="0" Text="Rows per wheel notch:" VerticalAlignment="Center" Margin="0,6,8,6"/>
+            <StackPanel Grid.Row="9" Grid.Column="1" Orientation="Horizontal" Margin="0,6">
+                <Slider Name="SL_NotchRows" Width="150" Minimum="1" Maximum="5" Value="1"
+                        TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                        ValueChanged="SL_NotchRows_ValueChanged"
+                        ToolTip="Scroll-by-image: how many image rows (or viewport page steps inside a tall book page) one full wheel notch moves. High-precision touchpad deltas accumulate until they add up to a full notch."/>
+                <TextBlock Name="TB_NotchRows" Width="50" Margin="6,0,0,0" VerticalAlignment="Center" Text="1"/>
             </StackPanel>
         </Grid>
 

@@ -24,13 +24,14 @@ namespace ImageViewer
         public int NewFitToWidthMinImageWidth { get; private set; }
         public int NewScrollUndershootPercent { get; private set; }
         public bool NewAutoRefreshOnFolderChange { get; private set; }
+        public int NewScrollNotchRows { get; private set; }
 
         Brush _bgBrush;
 
         public SettingsWindow(bool recurse, bool fitToWidth, bool showStatusBar,
                               int maxSizePercent, double defaultScale, Color backgroundColor,
                               int minFitWidthPx, int scrollUndershootPercent,
-                              bool autoRefreshOnFolderChange)
+                              bool autoRefreshOnFolderChange, int scrollNotchRows)
         {
             InitializeComponent();
 
@@ -43,6 +44,7 @@ namespace ImageViewer
             NewFitToWidthMinImageWidth = minFitWidthPx;
             NewScrollUndershootPercent = Math.Max(0, Math.Min(50, scrollUndershootPercent));
             NewAutoRefreshOnFolderChange = autoRefreshOnFolderChange;
+            NewScrollNotchRows = Math.Max(1, Math.Min(5, scrollNotchRows));
 
             CHK_Recurse.IsChecked = recurse;
             CHK_FitToWidth.IsChecked = fitToWidth;
@@ -57,6 +59,9 @@ namespace ImageViewer
 
             SL_Undershoot.Value = NewScrollUndershootPercent;
             TB_Undershoot.Text = NewScrollUndershootPercent.ToString() + " %";
+
+            SL_NotchRows.Value = NewScrollNotchRows;
+            TB_NotchRows.Text = NewScrollNotchRows.ToString();
 
             TB_Scale.Text = defaultScale.ToString("F2");
 
@@ -80,6 +85,12 @@ namespace ImageViewer
         {
             if (TB_Undershoot != null)
                 TB_Undershoot.Text = ((int)e.NewValue).ToString() + " %";
+        }
+
+        private void SL_NotchRows_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (TB_NotchRows != null)
+                TB_NotchRows.Text = ((int)e.NewValue).ToString();
         }
 
         private void TB_Scale_TextChanged(object sender, TextChangedEventArgs e)
@@ -133,6 +144,7 @@ namespace ImageViewer
             NewDefaultScale = scale;
             NewFitToWidthMinImageWidth = (int)SL_MinFitPx.Value;
             NewScrollUndershootPercent = (int)SL_Undershoot.Value;
+            NewScrollNotchRows = (int)SL_NotchRows.Value;
 
             DialogResult = true;
             Close();
