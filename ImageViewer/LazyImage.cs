@@ -51,24 +51,35 @@ namespace ImageViewer
         private double _lastScale = 1.0;
         private double _lastFitWidth = 0;
         private double _lastMaxSizeFactor = 1.0;
+        private double _lastMinFitWidthPx = 0;
 
         // Scales the image and recomputes its layout size.
-        //   scale          : user scale factor from the toolbar slider
-        //   targetWidth    : > 0 enables "fit to width" (book format) mode -
-        //                    every image is scaled so its rendered width
-        //                    equals this value.
-        //   maxSizeFactor  : fraction of the available layout area used to
-        //                    clamp oversized images before scaling.
-        public void UpdateSize(double scale, double targetWidth = 0, double maxSizeFactor = 1.0)
+        //   scale           : user scale factor from the toolbar slider
+        //   targetWidth     : > 0 enables "fit to width" (book format) mode -
+        //                     images at least as wide as minWidth are scaled
+        //                     so their rendered width equals this value.
+        //   maxSizeFactor   : fraction of the available layout area used to
+        //                     clamp oversized images before scaling.
+        //   minWidthInPixels: fit-to-width threshold (original pixel width).
+        //                     Images narrower than this keep their normal
+        //                     scale so small icons don't get blown up to the
+        //                     full window width; they then flow in between
+        //                     the large pages.
+        // NOTE: the size is ALWAYS derived from the original dimensions -
+        // never chained onto previously computed sizes - so repeated calls
+        // cannot accumulate rounding error (a source of transient overlaps).
+        public void UpdateSize(double scale, double targetWidth = 0, double maxSizeFactor = 1.0, double minWidthInPixels = 0)
         {
             _lastScale = scale;
             _lastFitWidth = targetWidth;
             _lastMaxSizeFactor = maxSizeFactor;
+            _lastMinFitWidthPx = minWidthInPixels;
 
             double w = _originalWidth;
             double h = _originalHeight;
 
-            if (targetWidth > 0)
+            bool fits = targetWidth > 0 && (_originalWidth * 96.0 >= minWidthInPixels || _originalHeight * 96.0 >= minWidthInPixels);
+            if (fits)
             {
                 // Book format: derive the scale directly from the current
                 // window width instead of chaining it onto previously
@@ -84,12 +95,21 @@ namespace ImageViewer
             // Never let an image collapse to zero (or negative/NaN) extents -
             // degenerate sizes break the flow layout and cause overlaps.
             const double minDim = 8.0;
-            this.Width = Math.Max(minDim, w);
-            this.Height = Math.Max(minDim, h);
+            var newW = Math.Max(minDim, w);
+            var newH = Math.Max(minDim, h);
 
-            // Force WPF to re-measure this element so DesiredSize tracks the
-            // explicit Width/Height we just set.
-            InvalidateMeasure();
+            // Only touch Width/Height (and dirty the layout system) when the
+            // size actually changed. This keeps bulk relayouts cheap: most
+            // images - e.g. all the small ones while fit-to-width is on -
+            // are skipped entirely, preserving the snappy lazy behavior.
+            bool sizeChanged = !this.Width.HasValue || Math.Abs(this.Width.Value - newW) >= 0.01 ||
+                               !this.Height.HasValue || Math.Abs(this.Height.Value - newH) >= 0.01;
+            if (sizeChanged)
+            {
+                this.Width = newW;
+                this.Height = newH;
+                InvalidateMeasure();
+            }
         }
 
         // Recompute the size using the last layout parameters. Called when
@@ -97,7 +117,7 @@ namespace ImageViewer
         // stay in sync with the actual usable width.
         public void RefreshSize(double targetWidth)
         {
-            UpdateSize(_lastScale, targetWidth > 0 ? targetWidth : _lastFitWidth, _lastMaxSizeFactor);
+            UpdateSize(_lastScale, targetWidth > 0 ? targetWidth : _lastFitWidth, _lastMaxSizeFactor, _lastMinFitWidthPx);
         }
 
         public LazyImage(string path, ListView host, double MaxWidth, double MaxHeight) : base() 

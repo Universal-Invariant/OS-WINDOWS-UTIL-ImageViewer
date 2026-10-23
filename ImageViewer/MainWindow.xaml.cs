@@ -91,8 +91,17 @@ namespace ImageViewer
         private const int MaxRecentPaths = 10;
 
         // "Fit to width" (book format) mode: every image is scaled so its
-        // width equals the usable window width times this factor.
+        // width equals the usable window width times this factor. Kept below
+        // 1.0 so rounding drift can never push an image past the wrap
+        // threshold in SmartFlowPanel (which would create overlapping rows).
         const double FitToWidthFactor = 0.985;
+
+        // Scale slider drag throttle: ApplyScale() is O(all images), so we
+        // coalesce rapid ValueChanged events into at most one relayout per
+        // interval and always schedule a final apply for the last value.
+        const double ScaleApplyIntervalMs = 60.0;
+        DispatcherTimer _scaleApplyTimer = null;
+        bool _scaleFinalApplyPending = false;
 
         // Native window messages needed for sane maximize behavior with a
         // custom (borderless) title bar.
@@ -256,7 +265,37 @@ namespace ImageViewer
         }
         private void SD_Scale_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            ApplyScale();
+            // Throttle slider drags: ApplyScale() touches every image and is
+            // O(n), so running it for each intermediate value of a drag made
+            // large folders stutter. Relayout at most once per interval and
+            // always once more after the drag settles on the final value.
+            if (_scaleApplyTimer == null)
+            {
+                _scaleApplyTimer = new DispatcherTimer(DispatcherPriority.Background)
+                {
+                    Interval = TimeSpan.FromMilliseconds(ScaleApplyIntervalMs)
+                };
+                _scaleApplyTimer.Tick += (s, ev) =>
+                {
+                    _scaleApplyTimer.Stop();
+                    ApplyScale();
+                    if (_scaleFinalApplyPending)
+                    {
+                        _scaleFinalApplyPending = false;
+                        _scaleApplyTimer.Start();
+                    }
+                };
+            }
+
+            _scaleFinalApplyPending = true;
+            if (!_scaleApplyTimer.IsEnabled)
+            {
+                // Immediate first apply keeps the UI responsive, then the
+                // timer coalesces everything until the user stops dragging.
+                _scaleFinalApplyPending = false;
+                ApplyScale();
+                _scaleApplyTimer.Start();
+            }
         }
 
         // Re-applies the current layout settings (scale slider + fit-to-width
@@ -266,28 +305,23 @@ namespace ImageViewer
             var ScaleFactor = Math.Max(0.1, Math.Min(3.0, SD_Scale.Value));
             var fitWidth = ComputeFitToWidthScale();
             var maxSizeFactor = MaxSizeFactor();
+            var minFitPx = FitToWidthMinPixels();
 
             foreach (var item in LV.Items.OfType<LazyImage>())
             {
-                item.UpdateSize(ScaleFactor, fitWidth, maxSizeFactor);
-                item.InvalidateMeasure();
-                item.InvalidateArrange();
-                item.InvalidateVisual();
+                // UpdateSize() only mutates Width/Height (and dirties layout)
+                // when the computed size actually differs, so unchanged
+                // images - e.g. all the small ones while fit-to-width is on -
+                // cost almost nothing here.
+                item.UpdateSize(ScaleFactor, fitWidth, maxSizeFactor, minFitPx);
             }
 
-            // Force layout update
-            SmartFlowPanel.Current?.InvalidateLocations();
-
+            // Force one relayout pass for the whole panel.
             var panel = SmartFlowPanel.Current;
-            panel?.InvalidateMeasure();
-            panel?.InvalidateArrange();
-            panel?.InvalidateVisual();
             panel?.InvalidateLocations();
 
-            LV.InvalidateArrange();
-            LV.InvalidateVisual();
             LV.InvalidateMeasure();
-
+            LV.InvalidateArrange();
         }
 
         void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -490,6 +524,15 @@ namespace ImageViewer
             return w * FitToWidthFactor;
         }
 
+        // Minimum ORIGINAL pixel size for an image to be scaled up by
+        // fit-to-width. Images below this keep their normal scale so icons
+        // and other small images don't get blown up to the full window
+        // width - they then flow in between the large "pages".
+        double FitToWidthMinPixels()
+        {
+            return Math.Max(0, Settings.Default.FitToWidthMinImageWidth);
+        }
+
         // Maximum allowed image dimension (from the settings dialog), used as
         // the pre-scale clamp for images larger than the window.
         double MaxSizeFactor()
@@ -534,6 +577,7 @@ namespace ImageViewer
                 TGB_FitToWidth.IsChecked ?? false,
                 SB_Main.Visibility == Visibility.Visible,
                 Settings.Default.MaxImageSizePercent,
+                Settings.Default.FitToWidthMinImageWidth,
                 SD_Scale.Value,
                 bg)
             {
@@ -560,11 +604,18 @@ namespace ImageViewer
                 Settings.Default.ShowStatusBar = dlg.NewShowStatusBar;
 
                 Settings.Default.MaxImageSizePercent = dlg.NewMaxImageSizePercent;
+                Settings.Default.FitToWidthMinImageWidth = dlg.NewFitToWidthMinImageWidth;
 
                 var newScale = Math.Max(SD_Scale.Minimum, Math.Min(SD_Scale.Maximum, dlg.NewDefaultScale));
                 if (Math.Abs(SD_Scale.Value - newScale) > 0.001)
                 {
                     SD_Scale.Value = newScale;    // triggers ApplyScale()
+                }
+                else
+                {
+                    // The threshold only takes effect through a relayout, and
+                    // the scale didn't change (so no ValueChanged fired).
+                    ApplyScale();
                 }
 
                 Settings.Default.Save();

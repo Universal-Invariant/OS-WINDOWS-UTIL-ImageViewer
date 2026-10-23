@@ -75,13 +75,22 @@ namespace ImageViewer
 			var width = ScrollOwner.ViewportWidth;
 			_Offset = new Point(e.HorizontalOffset, e.VerticalOffset);
 
+			// NOTE: we deliberately do NOT rebuild the whole layout on every
+			// scroll tick. The rectangles in ElementLocations only change when
+			// an image's size changes (scale / fit-to-width / resize), never
+			// because of scrolling. Re-invalidating measure+arrange here was a
+			// major cost while dragging the scrollbar over large folders and
+			// also produced transient frames where sizes and positions were
+			// out of sync (the "transient overlaps"). Scrolling now only does
+			// the lazy load/unload bookkeeping below.
+
 			// Scan over all visible images
 			ElementLocations.EnumeratorRange = new TreeCollection.KeyInterval<double>(e.VerticalOffset, e.VerticalOffset + height);
 			ElementLocations.Traversal.TraversalMethod = TreeCollection.TraversalEnumeratorMethod.In;
 			ElementLocations.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Normal;
 			ElementLocations.Traversal.Traverse((t, n) =>
 			{
-				var image = ((t.Item2 as ListViewItem).Content as LazyImage); if (image == null) return true;
+				var image = GetImage(t.Item2); if (image == null) return true;
 
 				image.LoadImage();
 				if (!VisibleUIElements.Contains(t)) VisibleUIElements.Add(t);
@@ -96,7 +105,7 @@ namespace ImageViewer
 			ElementLocations.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Reverse;
 			ElementLocations.Traversal.Traverse((t, n) =>
 			{
-				var image = ((t.Item2 as ListViewItem).Content as LazyImage); if (image == null) return true;
+				var image = GetImage(t.Item2); if (image == null) return true;
 
 				if (t.Item1.Y + t.Item1.Height > e.VerticalOffset)
 				{
@@ -115,7 +124,7 @@ namespace ImageViewer
 			{
 				var t = VisibleUIElements[i];
 
-				var image = (t.Item2 as ListViewItem).Content as LazyImage;
+				var image = GetImage(t.Item2);
 				if (image == null) { VisibleUIElements.RemoveAt(i); continue; }
 				if (t.Item1.Y + t.Item1.Height < e.VerticalOffset || e.VerticalOffset + height < t.Item1.Y)
 				{
@@ -126,11 +135,24 @@ namespace ImageViewer
 
 			}
 
-
-			InvalidateLocations();
-
+			// Restore the "whole tree" state so any later traversal that
+			// expects to see every element is not silently clipped to the
+			// last scroll band used above.
+			ElementLocations.EnumeratorRange = null;
 
 			return;
+		}
+
+		// Extract the LazyImage from a child element. Children are either the
+		// LazyImages themselves or ListViewItem containers wrapping them; both
+		// forms are handled so nothing is silently skipped during layout.
+		static LazyImage GetImage(UIElement child)
+		{
+			var img = child as LazyImage;
+			if (img != null) return img;
+			var lvi = child as ListViewItem;
+			if (lvi != null) return lvi.Content as LazyImage;
+			return null;
 		}
 
 		Size MeasureSize;
@@ -145,6 +167,8 @@ namespace ImageViewer
 		protected Size HorizontalWrapPanelMeasureOverrideProc(Size availableSize)
 		{
 			if (ScrollOwner == null) ScrollOwner = VisualHelper.TryFindParent<ScrollViewer>(this);
+
+			bool relayout = _invalidatedMeasure;
 
 			// The ScrollViewer measures its content with infinite height and a
 			// fixed width equal to the viewport. When that width changes (the
@@ -161,18 +185,17 @@ namespace ImageViewer
 					var target = UsableFitWidth(availableSize);
 					if (target > 0)
 					{
-						_invalidatedMeasure = true;
-						_invalidatedArrange = true;
+						relayout = true;
 						foreach (UIElement child in InternalChildren)
 						{
-							var img = (child as ListViewItem)?.Content as LazyImage;
+							var img = GetImage(child);
 							if (img != null) img.RefreshSize(target);
 						}
 					}
 				}
 			}
 
-			if (!_invalidatedMeasure) return MeasureSize;
+			if (!relayout) return MeasureSize;
 			
 			{
 				TempElements.Clear();
@@ -195,8 +218,12 @@ namespace ImageViewer
 					// images overlap after using the scale slider. Re-measure any
 					// child whose DesiredSize no longer matches its explicit size so
 					// the line math always uses the SCALED sizes.
-					var fe = child as FrameworkElement;
-					if (fe != null && (!fe.DesiredSize.Width.Equals(fe.Width) || !fe.DesiredSize.Height.Equals(fe.Height)))
+					// NOTE: for ListViewItem containers the explicit size lives on
+					// the LazyImage inside them - comparing against the container's
+					// NaN Width/Height would trigger an endless second Measure() of
+					// an already-valid subtree (a large per-scroll CPU cost).
+					var img = GetImage(child);
+					if (img != null && (!child.DesiredSize.Width.Equals(img.Width) || !child.DesiredSize.Height.Equals(img.Height)))
 						child.Measure(infiniteSize);
 
 					// Wrap only when the child would actually extend past the row and
@@ -262,17 +289,20 @@ namespace ImageViewer
 			// laid-out rows ("scaling randomly sorts it out a little").
 			// Arranging all measured locations guarantees non-overlapping
 			// slots for the entire list.
+			// PERF: collect the locations ONCE (a single tree traversal) and
+			// arrange directly from them - no per-child dictionary scans. The
+			// location rects already carry the exact sizes captured during
+			// measure, so we arrange with those dimensions instead of
+			// re-reading DesiredSize (which can be stale mid-propagation and
+			// caused the transient overlaps).
 			// NOTE: EnumeratorRange must stay null here so the traversal visits
 			// ALL elements (the scroll handler leaves it set to the visible band).
-			// Collect the locations with a full-tree traversal (EnumeratorRange is
-			// cleared because the scroll handler leaves it set to the visible band).
 			// NOTE: multiple elements can share a row and therefore an identical
-			// Y key - the tree stores those in one node's duplicate list, so we
-			// must walk node.Values as well or only one image per row would be
-			// arranged and the rest would keep their old rectangles (overlap!).
+			// Y key - the tree stores those in one node's duplicate list, so
+			// CompleteValueIteration must be on or only one image per row would
+			// be arranged and the rest would keep their old rectangles (overlap!).
 			ElementLocations.EnumeratorRange = null;
-			ElementLocations.Traversal.TraversalMethod = TreeCollection.TraversalEnumeratorMethod.Breadth;
-			ElementLocations.Traversal.TraversalType = TreeCollection.TraversalEnumeratorType.Recursive;
+			ElementLocations.Traversal.TraversalMethod = TreeCollection.TraversalEnumeratorMethod.In;
 			ElementLocations.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Normal;
 			ElementLocations.Traversal.CompleteValueIteration = true;
 			ElementLocations.Traversal.Root = ElementLocations.Root;
@@ -288,7 +318,7 @@ namespace ImageViewer
 			{
 				var child = loc.Item2;
 				if (child != null)
-					child.Arrange(new Rect(loc.Item1.X, loc.Item1.Y, child.DesiredSize.Width, child.DesiredSize.Height));
+					child.Arrange(new Rect(loc.Item1.X, loc.Item1.Y, loc.Item1.Width, loc.Item1.Height));
 			}
 
 			_invalidatedArrange = false;
