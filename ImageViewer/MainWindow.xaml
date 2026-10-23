@@ -232,25 +232,15 @@
                     Click="BtnClose_Click" ToolTip="Close"/>
         </Grid>
 
-        <!--<ScrollViewer CanContentScroll="True" ScrollChanged="LV_ScrollChanged">-->
-        <!-- Item container style: the default ListViewItem chrome (Padding 16px L/R +
-             border + MinHeight) inflated every image slot by ~20px and desynced the
-             row math from the scroll-by-image snapping. Strip it so the container's
-             DesiredSize == the LazyImage's exact size. -->
-        <ListView.ItemContainerStyle>
-            <Style TargetType="ListViewItem">
-                <Setter Property="Padding" Value="0"/>
-                <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Margin" Value="0"/>
-                <Setter Property="MinWidth" Value="0"/>
-                <Setter Property="MinHeight" Value="0"/>
-                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                <Setter Property="VerticalContentAlignment" Value="Stretch"/>
-            </Style>
-        </ListView.ItemContainerStyle>
-        <ListView Name="LV" Background="AliceBlue" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" SelectionMode="Multiple" HorizontalAlignment="Center">
-            HorizontalAlignment="Stretch"
-          VerticalAlignment="Stretch"
+        <!-- Item container chrome is stripped programmatically in MainWindow ctor
+             (see CreateImageContainerStyle): the default ListViewItem chrome
+             (Padding 16px L/R + border + MinHeight) inflates every image slot by
+             ~20px and desyncs the row math used by scroll-by-image snapping.
+             It must be set in code because this app targets an older framework
+             version where XAML attached-property syntax outside a target element
+             (ListView.ItemContainerStyle here, after the toolbar Grid) fails to
+             compile with MC3015. -->
+        <ListView Name="LV" Background="AliceBlue" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" SelectionMode="Multiple" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
             <ListView.ItemsPanel>
                 <ItemsPanelTemplate>
                     <ImageViewer:SmartFlowPanel/>

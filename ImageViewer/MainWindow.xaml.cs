@@ -115,11 +115,37 @@ namespace ImageViewer
 
 
 
+        /// <summary>
+        /// Strips the default ListViewItem chrome (16px L/R padding, border,
+        /// MinHeight) so each item container's DesiredSize equals the LazyImage's
+        /// exact size. Without this the row math used by scroll-by-image snapping
+        /// is off by ~20px per row. Done in code because this project targets an
+        /// older framework version whose XAML compiler rejects attached-property
+        /// element syntax placed outside a target element (MC3015).
+        /// </summary>
+        private static Style CreateImageContainerStyle()
+        {
+            var s = new Style(typeof(ListViewItem));
+            s.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+            s.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
+            s.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(0)));
+            s.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 0.0));
+            s.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 0.0));
+            s.Setters.Add(new Setter(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Stretch));
+            s.Setters.Add(new Setter(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Stretch));
+            s.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+            s.Setters.Add(new Setter(Control.VerticalContentAlignmentProperty, VerticalAlignment.Stretch));
+            return s;
+        }
+
         public MainWindow()
         {
             InitializeComponent();
 
             Current = this;
+
+            // Strip item-container chrome programmatically (see method docs).
+            LV.ItemContainerStyle = CreateImageContainerStyle();
 
             // Initialize events after settings are loaded
             SD_Scale.ValueChanged += SD_Scale_ValueChanged;
