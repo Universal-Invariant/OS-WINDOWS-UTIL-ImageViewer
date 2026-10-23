@@ -23,6 +23,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <CheckBox Grid.Row="0" Grid.ColumnSpan="2" Name="CHK_Recurse" Content="Search subdirectories (recursion)"
@@ -82,6 +83,11 @@
                         ToolTip="Scroll-by-image: how many image rows (or viewport page steps inside a tall book page) one full wheel notch moves. High-precision touchpad deltas accumulate until they add up to a full notch."/>
                 <TextBlock Name="TB_NotchRows" Width="50" Margin="6,0,0,0" VerticalAlignment="Center" Text="1"/>
             </StackPanel>
+
+            <CheckBox Grid.Row="10" Grid.ColumnSpan="2" Name="CHK_OpenOnDblClick"
+                      Content="Double-click an image to open it with the default external viewer"
+                      Margin="0,3" Foreground="#FFE1E1E1"
+                      ToolTip="Off: double-clicking does nothing special. On: double-clicking an image opens the file with the OS default application for that image type."/>
         </Grid>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">

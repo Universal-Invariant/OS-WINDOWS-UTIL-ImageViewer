@@ -704,7 +704,8 @@ namespace ImageViewer
                 Settings.Default.FitToWidthMinImageWidth,
                 Settings.Default.ScrollUndershootPercent,
                 Settings.Default.AutoRefreshOnFolderChange,
-                Settings.Default.ScrollNotchRows)
+                Settings.Default.ScrollNotchRows,
+                Settings.Default.OpenOnDoubleClick)
             {
                 Owner = this
             };
@@ -737,6 +738,9 @@ namespace ImageViewer
                 // Rows-per-notch is read live by the wheel handler on every
                 // notch, so persisting it here is all that's needed (no relayout).
                 Settings.Default.ScrollNotchRows = dlg.NewScrollNotchRows;
+                // Double-click-to-open is read live by LV_MouseLeftButtonDown,
+                // so persisting it here is all that's needed.
+                Settings.Default.OpenOnDoubleClick = dlg.NewOpenOnDoubleClick;
 
                 // If auto-refresh was just enabled and changes are already pending,
                 // reload now so the red button doesn't sit there misleadingly.
@@ -970,6 +974,38 @@ namespace ImageViewer
                 default: return;                                  // let other keys bubble on
             }
             e.Handled = true;
+        }
+
+        // Double-click an image to open it with the OS default viewer/editor.
+        // Wired unconditionally in the constructor but gated by the
+        // OpenOnDoubleClick setting (default on) so single/drag behaviour is
+        // untouched when the user opts out.
+        private void LV_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount != 2) return;
+            bool enabled = false;
+            try { enabled = Settings.Default.OpenOnDoubleClick; } catch { }
+            if (!enabled) return;
+
+            // Hit-test against the laid-out rectangles instead of walking the
+            // visual tree: cheap, exact, and reuses the same ElementLocations
+            // data the scroll-by-image logic already relies on.
+            var panel = SmartFlowPanel.Current;
+            if (panel == null) return;
+            var path = panel.GetImagePathAtPoint(e.GetPosition(panel));
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
+
+            e.Handled = true;   // don't start a drag/selection change under the dbl-click
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true };
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                WinForms.MessageBox.Show("Could not open image:\n" + ex.Message,
+                    "ImageViewer", WinForms.MessageBoxButtons.OK, WinForms.MessageBoxIcon.Warning);
+            }
         }
 
         ScrollViewer _svCache;
