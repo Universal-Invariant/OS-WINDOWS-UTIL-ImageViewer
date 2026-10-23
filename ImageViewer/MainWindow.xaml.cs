@@ -118,7 +118,7 @@ namespace ImageViewer
 
         string fileTypes = "*.jpg; *.jpeg; *.jpe; *.jif; *.jfif; *.jfi; *.png; *.bmp; *.ico; *.gif; *.tiff";
         BackgroundWorker currentRecurser = null;
-        
+
 
 
 
@@ -359,7 +359,7 @@ namespace ImageViewer
                         recentPaths.Add(item.Trim('\\'));
                 }
             }
-        
+
             Settings.Default.RecentPaths = recentPaths;
 
             // Save the last used path (the text in the combobox)
@@ -787,7 +787,14 @@ namespace ImageViewer
         private void TGB_ScrollByImage_Changed(object sender, RoutedEventArgs e)
         {
             Settings.Default.ScrollByImage = TGB_ScrollByImage.IsChecked ?? false;
+            // Leaving scroll-by-image mode: drop any half-accumulated fractional
+            // delta so re-enabling the mode doesn't fire a stale snap.
+            _wheelAccum = 0;
         }
+
+        // Fractional wheel-delta accumulator (touchpads / high-precision wheels).
+        int _wheelAccum = 0;
+        int _wheelNotches = 0;
 
         // --- Scroll-by-image -------------------------------------------------
         // When the toggle is on, one wheel notch moves one image ROW - but never
@@ -901,8 +908,9 @@ namespace ImageViewer
                     if (prev.IsEmpty && prev.Height <= 0)
                         target = 0;                                // nothing above -> top
                     else if (prev.Height > vpH + eps)
-                        target = Math.Max(0.0, prev.Bottom - pageStep);
+                        target = Math.Max(0.0, prev.Bottom - pageStep * notches);
                     else
+                    {
                         target = prev.Y;
                 }
             }
@@ -1064,7 +1072,7 @@ namespace ImageViewer
             var cb = sender as ComboBox;
             var s = cb.SelectedItem as String;
             if (s == null) return;
-            if (!Directory.Exists(s.TrimEnd('\\'))) return;            
+            if (!Directory.Exists(s.TrimEnd('\\'))) return;
             cb.SelectionChanged -= CB_Path_SelectionChanged;
             cb.Text = s;
             TextBox_TextChanged(sender, null);
@@ -1101,7 +1109,7 @@ namespace ImageViewer
 
                 var ScaleFactor = 1.0;
                 Dispatcher.Invoke(new Action(() =>
-                {                    
+                {
                     ScaleFactor = Math.Max(0.1, Math.Min(3.0, SD_Scale.Value));
                 }));
 

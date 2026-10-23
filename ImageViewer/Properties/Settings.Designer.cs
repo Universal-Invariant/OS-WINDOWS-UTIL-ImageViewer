@@ -165,5 +165,17 @@ namespace ImageViewer.Properties {
                 this["ScrollUndershootPercent"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("1")]
+        public int ScrollNotchRows {
+            get {
+                return ((int)(this["ScrollNotchRows"]));
+            }
+            set {
+                this["ScrollNotchRows"] = value;
+            }
+        }
     }
 }
