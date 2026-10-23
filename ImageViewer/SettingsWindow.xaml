@@ -21,6 +21,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <CheckBox Grid.Row="0" Grid.ColumnSpan="2" Name="CHK_Recurse" Content="Search subdirectories (recursion)"
@@ -31,27 +32,31 @@
                       ToolTip="Every image is scaled so its width matches the window width. Images of similar size line up like pages of a book."/>
             <CheckBox Grid.Row="2" Grid.ColumnSpan="2" Name="CHK_ShowStatusBar" Content="Show status bar at the bottom"
                       Margin="0,3" Foreground="#FFE1E1E1"/>
+            <CheckBox Grid.Row="3" Grid.ColumnSpan="2" Name="CHK_AutoRefresh"
+                      Content="Auto-reload when files are added/removed in the folder"
+                      Margin="0,3" Foreground="#FFE1E1E1"
+                      ToolTip="Off: the refresh button simply turns red and waits for you to click it. On: the folder reloads automatically after a short quiet period (can be slow for very large folders)."/>
 
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Maximum image size (% of window):" VerticalAlignment="Center" Margin="0,6,8,2"/>
-            <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,2">
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Maximum image size (% of window):" VerticalAlignment="Center" Margin="0,6,8,2"/>
+            <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,2">
                 <Slider Name="SL_MaxSize" Width="150" Minimum="10" Maximum="200" Value="100"
                         TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center"
                         ValueChanged="SL_MaxSize_ValueChanged"/>
                 <TextBlock Name="TB_MaxSize" Width="50" Margin="6,0,0,0" VerticalAlignment="Center" Text="100 %"/>
             </StackPanel>
 
-            <TextBlock Grid.Row="4" Grid.Column="0" Text="Default scale factor:" VerticalAlignment="Center" Margin="0,6,8,6"/>
-            <TextBox Grid.Row="4" Grid.Column="1" Name="TB_Scale" Width="60" HorizontalAlignment="Left" Margin="0,6"
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Default scale factor:" VerticalAlignment="Center" Margin="0,6,8,6"/>
+            <TextBox Grid.Row="5" Grid.Column="1" Name="TB_Scale" Width="60" HorizontalAlignment="Left" Margin="0,6"
                      VerticalContentAlignment="Center" TextChanged="TB_Scale_TextChanged"/>
 
-            <TextBlock Grid.Row="5" Grid.Column="0" Text="Background color:" VerticalAlignment="Center" Margin="0,6,8,6"/>
-            <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,6">
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Background color:" VerticalAlignment="Center" Margin="0,6,8,6"/>
+            <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,6">
                 <Border Name="BDR_Color" Width="40" Height="20" BorderBrush="#FF808080" BorderThickness="1" CornerRadius="3"/>
                 <Button Content="Change..." Width="70" Height="22" Margin="8,0,0,0" Click="BtnPickColor_Click"/>
             </StackPanel>
 
-            <TextBlock Grid.Row="6" Grid.Column="0" Text="Fit-to-width min. image size (px):" VerticalAlignment="Center" Margin="0,6,8,6"/>
-            <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,6">
+            <TextBlock Grid.Row="7" Grid.Column="0" Text="Fit-to-width min. image size (px):" VerticalAlignment="Center" Margin="0,6,8,6"/>
+            <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Margin="0,6">
                 <Slider Name="SL_MinFitPx" Width="150" Minimum="0" Maximum="2000" Value="500"
                         TickFrequency="50" IsSnapToTickEnabled="True" VerticalAlignment="Center"
                         ValueChanged="SL_MinFitPx_ValueChanged"
@@ -59,8 +64,8 @@
                 <TextBlock Name="TB_MinFitPx" Width="60" Margin="6,0,0,0" VerticalAlignment="Center" Text="500 px"/>
             </StackPanel>
 
-            <TextBlock Grid.Row="7" Grid.Column="0" Text="Scroll overlap when paging (%):" VerticalAlignment="Center" Margin="0,6,8,6"/>
-            <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Margin="0,6">
+            <TextBlock Grid.Row="8" Grid.Column="0" Text="Scroll overlap when paging (%):" VerticalAlignment="Center" Margin="0,6,8,6"/>
+            <StackPanel Grid.Row="8" Grid.Column="1" Orientation="Horizontal" Margin="0,6">
                 <Slider Name="SL_Undershoot" Width="150" Minimum="0" Maximum="50" Value="10"
                         TickFrequency="5" IsSnapToTickEnabled="True" VerticalAlignment="Center"
                         ValueChanged="SL_Undershoot_ValueChanged"

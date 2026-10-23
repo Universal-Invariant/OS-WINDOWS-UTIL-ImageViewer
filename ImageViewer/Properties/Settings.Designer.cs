@@ -120,6 +120,18 @@ namespace ImageViewer.Properties {
 
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool AutoRefreshOnFolderChange {
+            get {
+                return ((bool)(this["AutoRefreshOnFolderChange"]));
+            }
+            set {
+                this["AutoRefreshOnFolderChange"] = value;
+            }
+        }
+
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("100")]
         public int MaxImageSizePercent {
             get {

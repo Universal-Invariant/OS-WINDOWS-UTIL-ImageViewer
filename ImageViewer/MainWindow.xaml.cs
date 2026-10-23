@@ -149,8 +149,111 @@ namespace ImageViewer
             // default pixel scrolling entirely (no double-scroll).
             LV.PreviewMouseWheel += LV_PreviewMouseWheel;
 
+            // File-system watcher for the current folder: when images are
+            // added/deleted/renamed on disk we flag the refresh button red
+            // (we never auto-reload - a full reload is expensive and would
+            // throw away the lazy state / scroll position).
+            Watcher.Created += FolderWatcher_Changed;
+            Watcher.Deleted += FolderWatcher_Changed;
+            Watcher.Renamed += FolderWatcher_Changed;
+            Watcher.Error += (s, ev) => { try { Watcher.EnableRaisingEvents = true; } catch { }; };
+
             return;
 
+        }
+
+        // --- Directory change detection --------------------------------------
+        FileSystemWatcher Watcher = new FileSystemWatcher() { NotifyFilter = NotifyFilters.FileName };
+        bool _pendingChanges = false;      // changes seen since last (re)load
+        int _watchStamp = 0;               // guards against stale async snapshots
+
+        void UpdateFolderWatch()
+        {
+            // Detach first so a failed re-attach can't leave a watcher on the old path.
+            try { Watcher.EnableRaisingEvents = false; } catch { }
+            Watcher.Path = "";
+
+            var dir = oldPath;
+            if (string.IsNullOrEmpty(dir)) return;
+            string trimmed = dir.TrimEnd('\\');
+            if (!Directory.Exists(trimmed)) return;
+
+            ++_watchStamp;   // invalidate any in-flight bookkeeping from an older path
+
+            bool recurse = TGB_Recurse.IsChecked ?? false;
+
+            // Attaching the FileSystemWatcher itself is cheap (it just registers
+            // with the OS) - do it synchronously on the UI thread. We do NOT
+            // enumerate the directory here: for huge/network trees that would be
+            // as slow as a full reload, defeating the point. The watcher's own
+            // kernel events tell us when something actually changed.
+            try
+            {
+                Watcher.Path = trimmed;
+                Watcher.IncludeSubdirectories = recurse;
+                Watcher.EnableRaisingEvents = true;
+            }
+            catch
+            {
+                // Some paths (e.g. certain network shares) can't be watched;
+                // the refresh button simply stays hidden then.
+            }
+        }
+
+        void FolderWatcher_Changed(object sender, FileSystemEventArgs e)
+        {
+            // Ignore non-image files outright, and ignore events that only
+            // touched metadata inside subfolders we don't care about.
+            string ext = null;
+            try { ext = Path.GetExtension(e.Name).ToLower(); } catch { }
+            if (ext == null || !fileTypes.Contains(ext)) return;
+
+            // Marshal to the UI thread once per event burst (the raw event may
+            // fire dozens of times while Windows copies a folder).
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_pendingChanges)
+                {
+                    _pendingChanges = true;
+                    SetRefreshIndicator(true);
+                }
+
+                // Optional auto-reload: restart a quiet-period timer on every
+                // event so we reload only after the disk activity settles down
+                // (a folder copy fires hundreds of events; we want one reload).
+                if (Settings.Default.AutoRefreshOnFolderChange)
+                {
+                    if (_autoRefreshTimer == null)
+                    {
+                        _autoRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+                        _autoRefreshTimer.Tick += (ts, te) =>
+                        {
+                            _autoRefreshTimer.Stop();
+                            if (_pendingChanges) BtnRefresh_Click(null, null);
+                        };
+                    }
+                    _autoRefreshTimer.Stop();
+                    _autoRefreshTimer.Start();
+                }
+            }), DispatcherPriority.Background);
+        }
+        DispatcherTimer _autoRefreshTimer;
+
+        void SetRefreshIndicator(bool dirty)
+        {
+            BtnRefresh.Visibility = dirty ? Visibility.Visible : Visibility.Collapsed;
+            RefreshIcon.Stroke = dirty ? Brushes.Red : new SolidColorBrush(Color.FromRgb(0xE1, 0xE1, 0xE1));
+            BtnRefresh.ToolTip = dirty
+                ? "Files were added/removed in this folder - click to reload"
+                : "Reload the folder";
+        }
+
+        private void BtnRefresh_Click(object sender, RoutedEventArgs e)
+        {
+            _pendingChanges = false;
+            SetRefreshIndicator(false);
+            oldPath = null;                     // force TextBox_TextChanged to reload
+            TextBox_TextChanged(CB_Path, null);
         }
 
 
@@ -590,7 +693,8 @@ namespace ImageViewer
                 SD_Scale.Value,
                 bg,
                 Settings.Default.FitToWidthMinImageWidth,
-                Settings.Default.ScrollUndershootPercent)
+                Settings.Default.ScrollUndershootPercent,
+                Settings.Default.AutoRefreshOnFolderChange)
             {
                 Owner = this
             };
@@ -619,6 +723,12 @@ namespace ImageViewer
                 // Scroll undershoot is read live by the wheel handler on every
                 // notch, so persisting it here is all that's needed (no relayout).
                 Settings.Default.ScrollUndershootPercent = dlg.NewScrollUndershootPercent;
+                Settings.Default.AutoRefreshOnFolderChange = dlg.NewAutoRefreshOnFolderChange;
+
+                // If auto-refresh was just enabled and changes are already pending,
+                // reload now so the red button doesn't sit there misleadingly.
+                if (dlg.NewAutoRefreshOnFolderChange && _pendingChanges)
+                    BtnRefresh_Click(null, null);
 
                 var newScale = Math.Max(SD_Scale.Minimum, Math.Min(SD_Scale.Maximum, dlg.NewDefaultScale));
                 if (Math.Abs(SD_Scale.Value - newScale) > 0.001)
@@ -907,6 +1017,12 @@ namespace ImageViewer
 
             cb.Foreground = tbBrush;
             oldPath = t;
+
+            // New folder => re-aim the file-system watcher and clear any stale
+            // "files changed" indicator from the previous folder.
+            _pendingChanges = false;
+            SetRefreshIndicator(false);
+            UpdateFolderWatch();
 
             cb.Items.Remove(t); // Note when removing a value from the items it removes it from the Text element to since Text = Items[SelectedIndex]
             cb.Items.Insert(0, t);

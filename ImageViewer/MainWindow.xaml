@@ -139,6 +139,8 @@
                 <ColumnDefinition Width="Auto"/>
                 <!-- Browse folder icon -->
                 <ColumnDefinition Width="Auto"/>
+                <!-- Refresh (turns red when files changed on disk) -->
+                <ColumnDefinition Width="Auto"/>
                 <!-- Settings gear -->
                 <ColumnDefinition Width="Auto"/>
                 <!-- Minimize -->
@@ -203,8 +205,17 @@
                 </Canvas>
             </Button>
 
+            <!-- Refresh button - lights up red when files were added/removed in the watched folder -->
+            <Button Grid.Column="9" Name="BtnRefresh" Style="{StaticResource ToolButton}" Click="BtnRefresh_Click"
+                    Visibility="Collapsed" ToolTip="Files changed on disk - click to refresh">
+                <Canvas Width="16" Height="16">
+                    <Path x:Name="RefreshIcon" Stroke="#FFE1E1E1" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M 13.5,8 A 5.5,5.5 0 1 1 8,2.5 M 8,2.5 L 5.5,0.5 M 8,2.5 L 10.4,0.7"/>
+                </Canvas>
+            </Button>
+
             <!-- Settings gear - pops up the settings dialog -->
-            <Button Grid.Column="9" Name="BtnSettings" Style="{StaticResource ToolButton}" Click="BtnSettings_Click"
+            <Button Grid.Column="10" Name="BtnSettings" Style="{StaticResource ToolButton}" Click="BtnSettings_Click"
                     ToolTip="Settings">
                 <Canvas Width="16" Height="16">
                     <Path Fill="#FFE1E1E1" Data="M8,0 L9.8,2.3 L12.6,1.8 L13.1,4.6 L15.6,5.8 L14.1,8.2 L15.6,10.6 L13.1,11.8 L12.6,14.6 L9.8,14.1 L8,16.4 L6.2,14.1 L3.4,14.6 L2.9,11.8 L0.4,10.6 L1.9,8.2 L0.4,5.8 L2.9,4.6 L3.4,1.8 L6.2,2.3 Z"/>
@@ -213,11 +224,11 @@
             </Button>
 
             <!-- Window caption controls -->
-            <Button Grid.Column="10" Name="BtnMinimize" Style="{StaticResource CaptionButton}" Content="&#xE921;"
+            <Button Grid.Column="11" Name="BtnMinimize" Style="{StaticResource CaptionButton}" Content="&#xE921;"
                     Click="BtnMinimize_Click" ToolTip="Minimize"/>
-            <Button Grid.Column="11" Name="BtnMaximize" Style="{StaticResource CaptionButton}" Content="&#xE922;"
+            <Button Grid.Column="12" Name="BtnMaximize" Style="{StaticResource CaptionButton}" Content="&#xE922;"
                     Click="BtnMaximize_Click" ToolTip="Maximize / Restore"/>
-            <Button Grid.Column="12" Name="BtnClose" Style="{StaticResource CloseButton}" Content="&#xE8BB;"
+            <Button Grid.Column="13" Name="BtnClose" Style="{StaticResource CloseButton}" Content="&#xE8BB;"
                     Click="BtnClose_Click" ToolTip="Close"/>
         </Grid>
 

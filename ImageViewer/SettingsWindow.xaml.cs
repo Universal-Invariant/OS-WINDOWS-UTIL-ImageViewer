@@ -23,12 +23,14 @@ namespace ImageViewer
         public Color NewBackgroundColor { get; private set; }
         public int NewFitToWidthMinImageWidth { get; private set; }
         public int NewScrollUndershootPercent { get; private set; }
+        public bool NewAutoRefreshOnFolderChange { get; private set; }
 
         Brush _bgBrush;
 
         public SettingsWindow(bool recurse, bool fitToWidth, bool showStatusBar,
                               int maxSizePercent, double defaultScale, Color backgroundColor,
-                              int minFitWidthPx, int scrollUndershootPercent)
+                              int minFitWidthPx, int scrollUndershootPercent,
+                              bool autoRefreshOnFolderChange)
         {
             InitializeComponent();
 
@@ -40,10 +42,12 @@ namespace ImageViewer
             NewBackgroundColor = backgroundColor;
             NewFitToWidthMinImageWidth = minFitWidthPx;
             NewScrollUndershootPercent = Math.Max(0, Math.Min(50, scrollUndershootPercent));
+            NewAutoRefreshOnFolderChange = autoRefreshOnFolderChange;
 
             CHK_Recurse.IsChecked = recurse;
             CHK_FitToWidth.IsChecked = fitToWidth;
             CHK_ShowStatusBar.IsChecked = showStatusBar;
+            CHK_AutoRefresh.IsChecked = autoRefreshOnFolderChange;
 
             SL_MaxSize.Value = Math.Max(10, Math.Min(200, maxSizePercent));
             TB_MaxSize.Text = ((int)SL_MaxSize.Value).ToString() + " %";
@@ -124,6 +128,7 @@ namespace ImageViewer
             NewRecurse = CHK_Recurse.IsChecked ?? false;
             NewFitToWidth = CHK_FitToWidth.IsChecked ?? false;
             NewShowStatusBar = CHK_ShowStatusBar.IsChecked ?? false;
+            NewAutoRefreshOnFolderChange = CHK_AutoRefresh.IsChecked ?? false;
             NewMaxImageSizePercent = (int)SL_MaxSize.Value;
             NewDefaultScale = scale;
             NewFitToWidthMinImageWidth = (int)SL_MinFitPx.Value;

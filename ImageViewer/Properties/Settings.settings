@@ -23,6 +23,9 @@
     <Setting Name="ShowStatusBar" Type="System.Boolean" Scope="User">
       <Value Profile="(Default)">True</Value>
     </Setting>
+    <Setting Name="AutoRefreshOnFolderChange" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">False</Value>
+    </Setting>
     <Setting Name="MaxImageSizePercent" Type="System.Int32" Scope="User">
       <Value Profile="(Default)">100</Value>
     </Setting>
