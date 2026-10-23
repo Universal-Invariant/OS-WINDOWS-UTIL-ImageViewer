@@ -674,13 +674,17 @@ namespace ImageViewer
         }
 
         // --- Scroll-by-image -------------------------------------------------
-        // When the toggle is on, one wheel notch moves exactly one image ROW.
-        // Because a previous scroll can leave a partial row at the top, the
-        // first notch only snaps that sliver away (aligns to the next row's
-        // top edge); subsequent notches move a full row height each way.
-        // SmartFlowPanel keeps every laid-out rectangle in ElementLocations
-        // keyed by Y, so row lookup is O(log n) - no visual-tree walking and
-        // nothing here touches lazy loading.
+        // When the toggle is on, one wheel notch moves one image ROW - but never
+        // more than one viewport height. A row taller than the window (fit-to-
+        // width "book pages") would otherwise jump its full height off-screen in
+        // a single tick; instead such rows are paged: each notch scrolls exactly
+        // the viewport height until the row's bottom edge passes the viewport
+        // top, at which point the NEXT row snaps to the top and normal per-row
+        // paging resumes. Because a previous scroll can leave a partial row at
+        // the top, the first notch only snaps that sliver away (aligns to the
+        // next row's top edge). SmartFlowPanel keeps every laid-out rectangle in
+        // ElementLocations keyed by Y, so row lookup is cheap - no visual-tree
+        // walking and nothing here touches lazy loading.
         void LV_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (!(TGB_ScrollByImage.IsChecked ?? false)) return;   // pixel mode: let WPF handle it
@@ -694,19 +698,38 @@ namespace ImageViewer
             double offset = sv.VerticalOffset;
             const double eps = 2.0;                                // slop for layout rounding
             bool down = e.Delta < 0;
+            double vpH = Math.Max(1.0, sv.ViewportHeight);         // app-window usable height
 
             // Snap-to-row logic: if the viewport top is cut through the middle of
             // a row (from a previous partial/pixel scroll or a resize), the first
             // notch only snaps that sliver away so the next whole row sits at the
-            // very top; when already aligned, each notch moves exactly one row.
+            // very top; when already aligned, each notch moves exactly one row -
+            // clamped to one viewport height for oversized rows (paged scroll).
             double target;
             if (down)
             {
-                var r = panel.GetFirstRowBelow(offset + eps);      // first row starting below the top edge
-                if (!panel.HasRows || r.IsEmpty)
-                    target = sv.ScrollableHeight;                  // no rows below -> bottom
+                var cur = panel.GetLastRowAbove(offset + eps);     // row occupying the viewport top
+                bool aligned = !cur.IsEmpty && cur.Height > 0 && offset - cur.Y <= eps;
+                bool rowOversized = cur.Height > vpH + eps;
+
+                if (!panel.HasRows)
+                    target = sv.ScrollableHeight;                  // no layout data -> bottom
+                else if (aligned && rowOversized && offset + vpH < cur.Bottom - eps)
+                {
+                    // Tall row still extends below the viewport: page down one
+                    // viewport height, but never past the row's bottom edge -
+                    // landing exactly there makes the next notch snap cleanly to
+                    // the following row's top.
+                    target = Math.Min(offset + vpH, cur.Bottom);
+                }
                 else
-                    target = r.Y;                                  // snap that row to the viewport top
+                {
+                    var r = panel.GetFirstRowBelow(offset + eps);  // first row starting below the top edge
+                    if (r.IsEmpty && r.Height <= 0)
+                        target = sv.ScrollableHeight;              // no rows below -> bottom
+                    else
+                        target = r.Y;                              // snap that row to the viewport top
+                }
             }
             else
             {
@@ -714,11 +737,26 @@ namespace ImageViewer
                 if (!panel.HasRows || (cur.IsEmpty && cur.Height <= 0))
                     target = 0;                                    // nothing above -> top
                 else if (offset - cur.Y > eps)
-                    target = cur.Y;                                // mid-row sliver -> snap back to this row's top
+                {
+                    // Mid-row. Two cases:
+                    if (cur.Height > vpH + eps && offset - vpH >= cur.Y + eps)
+                        target = offset - vpH;                     // oversized row, still inside it: page up one viewport
+                    else
+                        target = cur.Y;                            // ordinary sliver -> snap back to this row's top
+                }
                 else
                 {
-                    var prev = panel.GetLastRowAbove(cur.Y - eps); // aligned -> jump to the previous row
-                    target = (prev.IsEmpty && prev.Height <= 0) ? 0 : prev.Y;
+                    // Aligned at cur's top. If the PREVIOUS row is oversized it
+                    // cannot fit in the viewport anyway, so land on ITS bottom
+                    // edge (one screenful of it fills the view) rather than its
+                    // unreachable top; otherwise snap to its top (clean row step).
+                    var prev = panel.GetLastRowAbove(cur.Y - eps);
+                    if (prev.IsEmpty && prev.Height <= 0)
+                        target = 0;                                // nothing above -> top
+                    else if (prev.Height > vpH + eps)
+                        target = Math.Max(0.0, prev.Bottom - vpH);
+                    else
+                        target = prev.Y;
                 }
             }
 
