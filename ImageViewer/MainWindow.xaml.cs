@@ -1,4 +1,4 @@
-﻿using ImageViewer.Properties;
+using ImageViewer.Properties;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -16,11 +16,69 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using System.Windows.Threading;
+using WinForms = System.Windows.Forms;
 using Path = System.IO.Path;
 
 namespace ImageViewer
 {
+    // Corrects WM_GETMINMAXINFO so that a WindowStyle=None window, when
+    // maximized, exactly fills the monitor work area (no clipped taskbar
+    // edge and no phantom margins).
+    internal static class MinMaxInfoPatched
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        struct POINT { public int X; public int Y; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct MINMAXINFO
+        {
+            public POINT ptReserved;
+            public POINT ptMaxSize;
+            public POINT ptMaxPosition;
+            public POINT ptMinTrackSize;
+            public POINT ptMaxTrackSize;
+        };
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct RECT { public int left; public int top; public int right; public int bottom; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        class MONITORINFO
+        {
+            public int cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public int dwFlags;
+        }
+
+        [DllImport("user32.dll")]
+        static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        static extern bool GetMonitorInfo(IntPtr hMonitor, MONITORINFO lpmi);
+
+        const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+
+        public static void WMGetMinmaxInfo(IntPtr hwnd, IntPtr lParam)
+        {
+            var handle = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            if (handle == IntPtr.Zero) return;
+
+            var mi = new MONITORINFO();
+            if (!GetMonitorInfo(handle, mi)) return;
+
+            var info = (MINMAXINFO)Marshal.PtrToStructure(lParam, typeof(MINMAXINFO));
+            info.ptMaxPosition.X = mi.rcWork.left - mi.rcMonitor.left;
+            info.ptMaxPosition.Y = mi.rcWork.top - mi.rcMonitor.top;
+            info.ptMaxSize.X = mi.rcWork.right - mi.rcWork.left;
+            info.ptMaxSize.Y = mi.rcWork.bottom - mi.rcWork.top;
+            Marshal.StructureToPtr(info, lParam, true);
+        }
+    }
+
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
@@ -28,8 +86,13 @@ namespace ImageViewer
     {
         private const int MaxRecentPaths = 10;
 
+        // "Fit to width" (book format) mode: every image is scaled so its
+        // width equals the usable window width times this factor.
+        const double FitToWidthFactor = 0.985;
 
-
+        // Native window messages needed for sane maximize behavior with a
+        // custom (borderless) title bar.
+        const int WM_GETMINMAXINFO = 0x0024;
 
 
         string fileTypes = "*.jpg; *.jpeg; *.jpe; *.jif; *.jfif; *.jfi; *.png; *.bmp; *.ico; *.gif; *.tiff";
@@ -56,29 +119,13 @@ namespace ImageViewer
 
             LoadSettings();
 
-            var L = new TreeCollection.AVLTree<int, int>();
-            L.ItemKey = (i) => { return i; };
-            var LL = new List<int>();
-            for (var i = 0; i < 20; i++) L.Add(i);
+            // Keep the maximize/restore button glyph in sync with the window state
+            StateChanged += (s, ev) => UpdateMaximizeGlyph();
+            UpdateMaximizeGlyph();
 
-            L.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Normal;
-            L.Traversal.TraversalMethod = TreeCollection.TraversalEnumeratorMethod.In;
-            L.Traversal.TraversalType = TreeCollection.TraversalEnumeratorType.Recursive;
-            L.Traversal.CompleteValueIteration = true;
-
-            L.EnumeratorRange = null; L.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Normal;
-            LL.Clear(); L.Traversal.Traverse((i) => { LL.Add(i); return true; });
-
-            L.EnumeratorRange = null; L.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Reverse;
-            LL.Clear(); L.Traversal.Traverse((i) => { LL.Add(i); return true; });
-
-            L.EnumeratorRange = new TreeCollection.KeyInterval<int>(5, 10); L.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Normal;
-            LL.Clear(); L.Traversal.Traverse((i) => { LL.Add(i); return true; });
-
-            L.EnumeratorRange = new TreeCollection.KeyInterval<int>(5, 10); L.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Reverse;
-            LL.Clear(); L.Traversal.Traverse((i) => { LL.Add(i); return true; });
-
-
+            // Re-layout the images when the window is resized so that
+            // fit-to-width / max-size clamping always tracks the window size.
+            SizeChanged += MainWindow_SizeChanged;
 
             return;
 
@@ -87,16 +134,15 @@ namespace ImageViewer
 
         private void LoadSettings()
         {
-            // Load background color
-            if (!string.IsNullOrEmpty(Settings.Default.BackgroundColorARGB))
+            // Load background color.
+            // (The stored default value contains literal quotes - strip them.)
+            var bgString = (Settings.Default.BackgroundColorARGB ?? "").Trim('"');
+            if (!string.IsNullOrEmpty(bgString))
             {
                 try
                 {
-                    var color = (Color)ColorConverter.ConvertFromString(Settings.Default.BackgroundColorARGB);
-                    var brush = new SolidColorBrush(color);
-                    this.Background = brush;
-                    BtnBgColor.Background = brush;
-                    LV.Background = brush;
+                    var color = (Color)ColorConverter.ConvertFromString(bgString);
+                    ApplyBackgroundColor(color);
                 }
                 catch (Exception ex)
                 {
@@ -108,8 +154,12 @@ namespace ImageViewer
             // Load scale factor
             SD_Scale.Value = Math.Max(0.1, Math.Min(3.0, Settings.Default.ScaleFactor));
 
-            // Load recurse setting
-            CB_Recurse.IsChecked = Settings.Default.RecurseSubdirectories;
+            // Load recurse setting (two-state toolbar toggle)
+            TGB_Recurse.IsChecked = Settings.Default.RecurseSubdirectories;
+
+            // Load layout settings
+            TGB_FitToWidth.IsChecked = Settings.Default.FitToWidth;
+            SB_Main.Visibility = Settings.Default.ShowStatusBar ? Visibility.Visible : Visibility.Collapsed;
 
             // Load recent paths into the ComboBox
             if (Settings.Default.RecentPaths != null)
@@ -155,17 +205,24 @@ namespace ImageViewer
             // Save scale factor
             Settings.Default.ScaleFactor = Math.Max(0.1, Math.Min(3.0, SD_Scale.Value));
 
-            // Save recurse setting
-            Settings.Default.RecurseSubdirectories = CB_Recurse.IsChecked ?? false;
+            // Save recurse setting (two-state toolbar toggle)
+            Settings.Default.RecurseSubdirectories = TGB_Recurse.IsChecked ?? false;
+
+            // Save layout settings
+            Settings.Default.FitToWidth = TGB_FitToWidth.IsChecked ?? false;
+            Settings.Default.ShowStatusBar = SB_Main.Visibility == Visibility.Visible;
 
             // Save recent paths
             var recentPaths = new StringCollection();
             // Add current path first if it's valid and not already the first item
             string currentPath = CB_Path.Text;
-            if (recentPaths.Contains(currentPath))
-                recentPaths.Remove(currentPath);                
-           
-            recentPaths.Insert(0, currentPath);
+            if (!string.IsNullOrEmpty(currentPath) && Directory.Exists(currentPath.TrimEnd('\\')))
+            {
+                if (recentPaths.Contains(currentPath))
+                    recentPaths.Remove(currentPath);
+
+                recentPaths.Insert(0, currentPath);
+            }
 
             // Add the rest of the paths, up to MaxRecentPaths - 1
             for (int i = 0; i < CB_Path.Items.Count && recentPaths.Count < MaxRecentPaths; i++)
@@ -193,12 +250,20 @@ namespace ImageViewer
         }
         private void SD_Scale_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            var ScaleFactor = Math.Max(0.1, Math.Min(3.0, e.NewValue));
+            ApplyScale();
+        }
 
-            
+        // Re-applies the current layout settings (scale slider + fit-to-width
+        // toggle) to every loaded image and forces a layout refresh.
+        private void ApplyScale()
+        {
+            var ScaleFactor = Math.Max(0.1, Math.Min(3.0, SD_Scale.Value));
+            var fitWidth = ComputeFitToWidthScale();
+            var maxSizeFactor = MaxSizeFactor();
+
             foreach (var item in LV.Items.OfType<LazyImage>())
             {
-                item.UpdateSize(ScaleFactor);
+                item.UpdateSize(ScaleFactor, fitWidth, maxSizeFactor);
                 item.InvalidateMeasure();
                 item.InvalidateArrange();
                 item.InvalidateVisual();
@@ -218,6 +283,19 @@ namespace ImageViewer
             LV.InvalidateMeasure();
 
         }
+
+        void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            // Debounce: relayout once the user stopped resizing for a moment
+            if (_sizeTimer == null)
+            {
+                _sizeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+                _sizeTimer.Tick += (s, ev) => { _sizeTimer.Stop(); ApplyScale(); };
+            }
+            _sizeTimer.Stop();
+            _sizeTimer.Start();
+        }
+        DispatcherTimer _sizeTimer = null;
 
 
         // --- New Methods for Features ---
@@ -322,21 +400,27 @@ namespace ImageViewer
 
         private void BtnBgColor_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new System.Windows.Forms.ColorDialog();
+            var dialog = new WinForms.ColorDialog();
             var current = (this.Background as SolidColorBrush)?.Color;
             if (current.HasValue)
                 dialog.Color = System.Drawing.Color.FromArgb(
                     current.Value.A, current.Value.R, current.Value.G, current.Value.B);
 
-            if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+            if (dialog.ShowDialog() == WinForms.DialogResult.OK)
             {
-                var wpfColor = Color.FromArgb(
-                    dialog.Color.A, dialog.Color.R, dialog.Color.G, dialog.Color.B);
-                var brush = new SolidColorBrush(wpfColor);
-                this.Background = brush;
-                BtnBgColor.Background = brush;
-                LV.Background = brush;
+                ApplyBackgroundColor(Color.FromArgb(
+                    dialog.Color.A, dialog.Color.R, dialog.Color.G, dialog.Color.B));
             }
+        }
+
+        // Applies a background color everywhere it is used and persists it.
+        private void ApplyBackgroundColor(Color color)
+        {
+            var brush = new SolidColorBrush(color);
+            this.Background = brush;
+            BtnBgColor.Background = brush;
+            LV.Background = brush;
+            Settings.Default.BackgroundColorARGB = color.ToString();
         }
 
 
@@ -344,22 +428,196 @@ namespace ImageViewer
         {
             base.OnInitialized(e);
 
-            CB_Path.Text = @"L:\Bar";
             SD_Scale.ValueChanged += SD_Scale_ValueChanged;
-            // In your Window code-behind
 
             this.InvalidateVisual();
             Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => { })).Wait();
             Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() => { })).Wait();
         }
 
+        // Hook the native window procedure so that maximizing a borderless
+        // window covers the whole monitor (no clipped edges / off-screen margins).
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            var source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            source?.AddHook(WndProc);
+        }
 
+        private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == WM_GETMINMAXINFO)
+            {
+                MinMaxInfoPatched.WMGetMinmaxInfo(hwnd, lParam);
+                handled = true;
+            }
+            return IntPtr.Zero;
+        }
 
+        // --- Layout helpers -------------------------------------------------
+
+        // Usable width of the image area (used by fit-to-width / max-size logic)
+        double GetLayoutWidth()
+        {
+            var w = LV.ActualWidth;
+            return w > 10 ? w : ActualWidth;
+        }
+
+        double GetLayoutHeight()
+        {
+            var h = LV.ActualHeight;
+            return h > 10 ? h : ActualHeight;
+        }
+
+        // Fit-to-width ("book format"): scale every image so its width equals
+        // the window width. Returns 0 to mean "not in fit-to-width mode".
+        double ComputeFitToWidthScale()
+        {
+            if (!(TGB_FitToWidth.IsChecked ?? false)) return 0;
+            var w = GetLayoutWidth();
+            if (w < 10) return 0;
+            return w * FitToWidthFactor;
+        }
+
+        // Maximum allowed image dimension (from the settings dialog), used as
+        // the pre-scale clamp for images larger than the window.
+        double MaxSizeFactor()
+        {
+            return Math.Max(0.1, Math.Min(2.0, Settings.Default.MaxImageSizePercent / 100.0));
+        }
+
+        // --- New toolbar handlers -------------------------------------------
+
+        // Folder-icon browse button: lets the user pick the image folder.
+        private void BtnBrowse_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new WinForms.FolderBrowserDialog
+            {
+                Description = "Select the folder containing your images:",
+                ShowNewFolderButton = false
+            };
+
+            try
+            {
+                if (!string.IsNullOrEmpty(CB_Path.Text) && Directory.Exists(CB_Path.Text))
+                    dlg.SelectedPath = CB_Path.Text;
+            }
+            catch { /* ignore invalid current text */ }
+
+            if (dlg.ShowDialog() == WinForms.DialogResult.OK && Directory.Exists(dlg.SelectedPath))
+            {
+                CB_Path.Text = dlg.SelectedPath;
+                oldPath = null;                       // force a reload
+                TextBox_TextChanged(CB_Path, null);   // loads the images & remembers the path
+                SaveSettings();                       // persist immediately so it is never lost
+            }
+        }
+
+        // Gear button: pops up the simple settings dialog.
+        private void BtnSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var bg = (this.Background as SolidColorBrush)?.Color ?? Colors.AliceBlue;
+
+            var dlg = new SettingsWindow(
+                TGB_Recurse.IsChecked ?? false,
+                TGB_FitToWidth.IsChecked ?? false,
+                SB_Main.Visibility == Visibility.Visible,
+                Settings.Default.MaxImageSizePercent,
+                SD_Scale.Value,
+                bg)
+            {
+                Owner = this
+            };
+
+            if (dlg.ShowDialog() == true)
+            {
+                ApplyBackgroundColor(dlg.NewBackgroundColor);
+
+                if (TGB_Recurse.IsChecked != (dlg.NewRecurse ? (bool?)true : (bool?)false))
+                {
+                    // Checked/Unchecked events fire CB_Recurse_Changed which reloads the images
+                    TGB_Recurse.IsChecked = dlg.NewRecurse;
+                }
+
+                if (TGB_FitToWidth.IsChecked != (dlg.NewFitToWidth ? (bool?)true : (bool?)false))
+                {
+                    // Checked/Unchecked events fire TGB_FitToWidth_Changed which relayouts
+                    TGB_FitToWidth.IsChecked = dlg.NewFitToWidth;
+                }
+
+                SB_Main.Visibility = dlg.NewShowStatusBar ? Visibility.Visible : Visibility.Collapsed;
+                Settings.Default.ShowStatusBar = dlg.NewShowStatusBar;
+
+                Settings.Default.MaxImageSizePercent = dlg.NewMaxImageSizePercent;
+
+                var newScale = Math.Max(SD_Scale.Minimum, Math.Min(SD_Scale.Maximum, dlg.NewDefaultScale));
+                if (Math.Abs(SD_Scale.Value - newScale) > 0.001)
+                {
+                    SD_Scale.Value = newScale;    // triggers ApplyScale()
+                }
+
+                Settings.Default.Save();
+            }
+        }
+
+        // Two-state recursion toggle (replaces the old label + checkbox)
         private void CB_Recurse_Changed(object sender, RoutedEventArgs e)
         {
             oldPath = null;
             TextBox_TextChanged(CB_Path, null);
         }
+
+        // Two-state "fit images to window width" toggle (book format)
+        private void TGB_FitToWidth_Changed(object sender, RoutedEventArgs e)
+        {
+            Settings.Default.FitToWidth = TGB_FitToWidth.IsChecked ?? false;
+            ApplyScale();
+        }
+
+        // --- Title-bar-less window handling ---------------------------------
+
+        // Drag handler: grab any empty part of the toolbar to move the window.
+        private void DragRegion_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2)
+            {
+                ToggleMaximizeRestore();
+                return;
+            }
+
+            try { DragMove(); }
+            catch (InvalidOperationException) { /* drag interrupted - ignore */ }
+        }
+
+        private void BtnMinimize_Click(object sender, RoutedEventArgs e)
+        {
+            WindowState = WindowState.Minimized;
+        }
+
+        private void BtnMaximize_Click(object sender, RoutedEventArgs e)
+        {
+            ToggleMaximizeRestore();
+        }
+
+        private void ToggleMaximizeRestore()
+        {
+            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        }
+
+        private void BtnClose_Click(object sender, RoutedEventArgs e)
+        {
+            Close();
+        }
+
+        // Segoe MDL2 glyphs: E922 = maximize, E923 = restore
+        private void UpdateMaximizeGlyph()
+        {
+            if (BtnMaximize == null) return;
+            BtnMaximize.Content = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
+            BtnMaximize.ToolTip = WindowState == WindowState.Maximized ? "Restore down" : "Maximize";
+        }
+
+
 
         Brush tbBrush = null;
         string oldPath = "";
@@ -429,7 +687,7 @@ namespace ImageViewer
 
             var dir = new DirectoryInfo(e.Argument as string);
 
-            var recurse = (bool)LV.Dispatcher.Invoke((Func<object>)(() => { return (CB_Recurse.IsChecked.HasValue) ? CB_Recurse.IsChecked.Value : false; }), null);
+            var recurse = (bool)LV.Dispatcher.Invoke((Func<object>)(() => { return (TGB_Recurse.IsChecked.HasValue) ? TGB_Recurse.IsChecked.Value : false; }), null);
 
             var numFilesRead = 0;
             var count = 0;
@@ -448,7 +706,16 @@ namespace ImageViewer
 
 
 
-                LV.Dispatcher.Invoke((Action<string>)((path) => { var item = new LazyImage(path, LV, this.ActualWidth, this.ActualHeight);  LV.Items.Add(item); item.UpdateSize(ScaleFactor); }), file.FullName);
+                double layoutW = 0, layoutH = 0, fitWidth = 0, maxSizeFactor = 1.0;
+                Dispatcher.Invoke(new Action(() =>
+                {
+                    layoutW = GetLayoutWidth();
+                    layoutH = GetLayoutHeight();
+                    fitWidth = ComputeFitToWidthScale();
+                    maxSizeFactor = MaxSizeFactor();
+                }));
+
+                LV.Dispatcher.Invoke((Action<string>)((path) => { var item = new LazyImage(path, LV, layoutW * maxSizeFactor, layoutH * maxSizeFactor);  LV.Items.Add(item); item.UpdateSize(ScaleFactor, fitWidth, maxSizeFactor); }), file.FullName);
 
                 if (count++ > maxDelay)
                 {

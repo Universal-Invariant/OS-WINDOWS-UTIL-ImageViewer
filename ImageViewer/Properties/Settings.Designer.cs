@@ -81,5 +81,41 @@ namespace ImageViewer.Properties {
                 this["RecentPaths"] = value;
             }
         }
+
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool FitToWidth {
+            get {
+                return ((bool)(this["FitToWidth"]));
+            }
+            set {
+                this["FitToWidth"] = value;
+            }
+        }
+
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ShowStatusBar {
+            get {
+                return ((bool)(this["ShowStatusBar"]));
+            }
+            set {
+                this["ShowStatusBar"] = value;
+            }
+        }
+
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("100")]
+        public int MaxImageSizePercent {
+            get {
+                return ((int)(this["MaxImageSizePercent"]));
+            }
+            set {
+                this["MaxImageSizePercent"] = value;
+            }
+        }
     }
 }
