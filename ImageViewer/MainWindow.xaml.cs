@@ -182,6 +182,13 @@ namespace ImageViewer
             // default pixel scrolling entirely (no double-scroll).
             LV.PreviewMouseWheel += LV_PreviewMouseWheel;
 
+            // PageUp/PageDown/Home/End mirror the wheel's row stepping when
+            // scroll-by-image is on (see LV_PreviewKeyDown).
+            LV.PreviewKeyDown += LV_PreviewKeyDown;
+
+            // Double-click an image to open it with the system default viewer.
+            LV.MouseLeftButtonDown += LV_MouseLeftButtonDown;
+
             // File-system watcher for the current folder: when images are
             // added/deleted/renamed on disk we flag the refresh button red
             // (we never auto-reload - a full reload is expensive and would
@@ -722,7 +729,8 @@ namespace ImageViewer
                 bg,
                 Settings.Default.FitToWidthMinImageWidth,
                 Settings.Default.ScrollUndershootPercent,
-                Settings.Default.AutoRefreshOnFolderChange)
+                Settings.Default.AutoRefreshOnFolderChange,
+                Settings.Default.ScrollNotchRows)
             {
                 Owner = this
             };
@@ -752,6 +760,9 @@ namespace ImageViewer
                 // notch, so persisting it here is all that's needed (no relayout).
                 Settings.Default.ScrollUndershootPercent = dlg.NewScrollUndershootPercent;
                 Settings.Default.AutoRefreshOnFolderChange = dlg.NewAutoRefreshOnFolderChange;
+                // Rows-per-notch is read live by the wheel handler on every
+                // notch, so persisting it here is all that's needed (no relayout).
+                Settings.Default.ScrollNotchRows = dlg.NewScrollNotchRows;
 
                 // If auto-refresh was just enabled and changes are already pending,
                 // reload now so the red button doesn't sit there misleadingly.
@@ -864,26 +875,58 @@ namespace ImageViewer
             int perNotch = 1;
             try { perNotch = Settings.Default.ScrollNotchRows; } catch { }
             perNotch = Math.Max(1, Math.Min(5, perNotch));
-            // Fractional (high-precision) deltas accumulate across events so a
-            // trackpad swipe eventually advances exactly one row/page step;
-            // classic 120-unit notches always yield exactly `perNotch` per tick.
+            // Sign-tracked accumulator: flipping scroll direction resets it so a
+            // leftover partial delta from the opposite swipe can't eat into the
+            // next notch's worth of movement.
             if (mag >= 120)
             {
                 _wheelAccum = 0;
                 _wheelNotches = Math.Max(1, (int)Math.Round(mag / 120.0)) * perNotch;
             }
-            else
+            else if (_wheelAccum == 0 || Math.Sign(_wheelAccum) == e.Delta)
             {
-                _wheelAccum += mag;
+                _wheelAccum += e.Delta;
                 _wheelNotches = 0;
-                while (_wheelAccum >= 120) { _wheelAccum -= 120; ++_wheelNotches; }
+                while (Math.Abs(_wheelAccum) >= 120)
+                {
+                    _wheelAccum -= Math.Sign(_wheelAccum) * 120;
+                    ++_wheelNotches;
+                }
                 if (_wheelNotches == 0)
                 {
                     e.Handled = true;   // consumed: suppress pixel scrolling but don't snap yet
                     return;
                 }
             }
+            else
+            {
+                _wheelAccum = e.Delta;  // direction flipped: restart accumulation cleanly
+                e.Handled = true;
+                return;
+            }
+            int notches = _wheelNotches;
+            ScrollToRowStep(down ? notches : -notches);
+            e.Handled = true;                                      // suppress default 3-lines-per-tick scrolling
+        }
+
+        // Shared row/page stepping used by both the mouse wheel and the
+        // PageUp/PageDown keys. A positive `signedNotches` scrolls down that
+        // many notch steps, a negative value scrolls up. Honours the
+        // rows-per-notch and scroll-undershoot settings.
+        void ScrollToRowStep(int signedNotches)
+        {
+            var panel = SmartFlowPanel.Current;
+            if (panel == null || signedNotches == 0) return;
+
+            var sv = GetScrollViewer();
+            if (sv == null) return;
+            if (sv.ScrollableHeight <= 0) return;   // nothing to scroll at all
+
+            const double eps = 2.0;                                // slop for layout rounding
+            bool down = signedNotches > 0;
+            int notches = Math.Abs(signedNotches);
             double vpH = Math.Max(1.0, sv.ViewportHeight);         // usable app-window height
+
             GeneralTransform gt = panel.TransformToVisual(sv);
             double panelTopInSv = gt != null ? gt.Transform(new Point(0, 0)).Y : 0.0;
             double yTop = Math.Max(0.0, sv.VerticalOffset - panelTopInSv);  // viewport top in PANEL space
@@ -1006,8 +1049,31 @@ namespace ImageViewer
                 if (down) sv.LineDown();
                 else sv.LineUp();
             }
+        }
 
-            e.Handled = true;                                      // suppress default 3-lines-per-tick scrolling
+        // PageUp/PageDown/Home/End in scroll-by-image mode: step whole rows
+        // exactly like the wheel does, instead of WPF's default viewport jump.
+        void LV_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (!(TGB_ScrollByImage.IsChecked ?? false)) return;   // pixel mode: let WPF handle keys
+            if (Keyboard.Modifiers != ModifierKeys.None) return;   // leave Ctrl/Alt combos alone
+
+            var sv = GetScrollViewer();
+            if (sv == null || sv.ScrollableHeight <= 0) return;
+
+            int perNotch = 1;
+            try { perNotch = Settings.Default.ScrollNotchRows; } catch { }
+            perNotch = Math.Max(1, Math.Min(5, perNotch));
+
+            switch (e.Key)
+            {
+                case Key.PageDown: ScrollToRowStep(perNotch); break;
+                case Key.PageUp: ScrollToRowStep(-perNotch); break;
+                case Key.Home: sv.ScrollToVerticalOffset(0); break;
+                case Key.End: sv.ScrollToVerticalOffset(sv.ScrollableHeight); break;
+                default: return;                                  // let other keys bubble on
+            }
+            e.Handled = true;
         }
 
         ScrollViewer _svCache;
