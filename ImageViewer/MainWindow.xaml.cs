@@ -16,6 +16,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using Utility;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -142,6 +143,12 @@ namespace ImageViewer
             // fit-to-width / max-size clamping always tracks the window size.
             SizeChanged += MainWindow_SizeChanged;
 
+            // "Scroll by image" mode: intercept the mouse wheel over the list
+            // and jump whole rows instead of letting WPF scroll 3 lines/tick.
+            // PreviewMouseWheel tunnels to us first, so e.Handled stops the
+            // default pixel scrolling entirely (no double-scroll).
+            LV.PreviewMouseWheel += LV_PreviewMouseWheel;
+
             return;
 
         }
@@ -174,6 +181,9 @@ namespace ImageViewer
 
             // Load layout settings
             TGB_FitToWidth.IsChecked = Settings.Default.FitToWidth;
+
+            // Load the persistent "scroll by image" toolbar toggle
+            TGB_ScrollByImage.IsChecked = Settings.Default.ScrollByImage;
             SB_Main.Visibility = Settings.Default.ShowStatusBar ? Visibility.Visible : Visibility.Collapsed;
 
             // Load recent paths into the ComboBox
@@ -632,8 +642,118 @@ namespace ImageViewer
         // Two-state "fit images to window width" toggle (book format)
         private void TGB_FitToWidth_Changed(object sender, RoutedEventArgs e)
         {
-            Settings.Default.FitToWidth = TGB_FitToWidth.IsChecked ?? false;
+            var on = TGB_FitToWidth.IsChecked ?? false;
+            Settings.Default.FitToWidth = on;
+
+            // In "book format" mode every image is sized from the window width
+            // alone - the user scale slider must not multiply on top of that or
+            // images spill past the wrap edge (overlaps). Snap the slider to 1.0
+            // when activating so the layout math stays exact; restore the last
+            // user scale when deactivating.
+            if (on)
+            {
+                _scaleBeforeFitToWidth = SD_Scale.Value;   // remember, in case it != 1
+                if (Math.Abs(SD_Scale.Value - 1.0) > 0.001)
+                    SD_Scale.Value = 1.0;                  // triggers ApplyScale() via ValueChanged
+            }
+            else
+            {
+                if (Math.Abs(SD_Scale.Value - _scaleBeforeFitToWidth) > 0.001 &&
+                    Math.Abs(_scaleBeforeFitToWidth - 1.0) > 0.001)
+                    SD_Scale.Value = _scaleBeforeFitToWidth; // triggers ApplyScale()
+            }
+
             ApplyScale();
+        }
+        double _scaleBeforeFitToWidth = 1.0;
+
+        // Two-state "scroll one image per wheel tick" toggle (persistent).
+        private void TGB_ScrollByImage_Changed(object sender, RoutedEventArgs e)
+        {
+            Settings.Default.ScrollByImage = TGB_ScrollByImage.IsChecked ?? false;
+        }
+
+        // --- Scroll-by-image -------------------------------------------------
+        // When the toggle is on, one wheel notch moves exactly one image ROW.
+        // Because a previous scroll can leave a partial row at the top, the
+        // first notch only snaps that sliver away (aligns to the next row's
+        // top edge); subsequent notches move a full row height each way.
+        // SmartFlowPanel keeps every laid-out rectangle in ElementLocations
+        // keyed by Y, so row lookup is O(log n) - no visual-tree walking and
+        // nothing here touches lazy loading.
+        void LV_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (!(TGB_ScrollByImage.IsChecked ?? false)) return;   // pixel mode: let WPF handle it
+            var panel = SmartFlowPanel.Current;
+            if (panel == null || e.Delta == 0) return;
+
+            var sv = GetScrollViewer();
+            if (sv == null || sv.ScrollableHeight <= 0) { e.Handled = true; return; }
+
+            double offset = sv.VerticalOffset;
+            const double eps = 1.5;                                // sub-pixel slop for layout rounding
+            bool down = e.Delta < 0;
+
+            double target;
+            if (down)
+            {
+                // Top-most row whose content still hangs below the viewport top.
+                var r = panel.GetFirstRowBelow(offset + eps);
+                if (r == null) target = sv.ScrollableHeight;       // already at the bottom
+                else
+                {
+                    double rowBottom = r.Y + r.Height;
+                    if (rowBottom > offset + r.Height * 0.25)
+                        target = rowBottom - sv.ViewportHeight;    // partial row -> bring its bottom edge to the viewport top
+                    else
+                        target = r.Y;                               // aligned -> show the next row at the top
+                }
+            }
+            else
+            {
+                // Last row that starts above the current top edge.
+                var r = panel.GetLastRowAbove(offset - eps);
+                if (r == null) target = 0;                          // already at the very top
+                else
+                {
+                    double rowBottom = r.Y + r.Height;
+                    if (offset - r.Y < r.Height * 0.75 && offset - r.Y > eps)
+                        target = r.Y;                               // showing the tail of this row -> snap back to its top
+                    else
+                        target = rowBottom - sv.ViewportHeight;     // aligned -> reveal the previous row's tail
+                }
+            }
+
+            // Clamp: never past the ends, never negative.
+            if (target < 0) target = 0;
+            if (target > sv.ScrollableHeight) target = sv.ScrollableHeight;
+
+            sv.ScrollToVerticalOffset(target);
+            e.Handled = true;                                       // suppress default line scrolling
+        }
+
+        ScrollViewer _svCache;
+        ScrollViewer GetScrollViewer()
+        {
+            // The ListView's internal ScrollViewer is stable once templated;
+            // cache it instead of walking the tree on every wheel tick.
+            if (_svCache != null) return _svCache;
+            _svCache = FindScrollViewer(LV);
+            return _svCache;
+        }
+
+        static ScrollViewer FindScrollViewer(DependencyObject root)
+        {
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                var sv = child as ScrollViewer;
+                if (sv != null) return sv;
+                sv = FindScrollViewer(child);
+                if (sv != null) return sv;
+            }
+            return null;
         }
 
         // --- Title-bar-less window handling ---------------------------------

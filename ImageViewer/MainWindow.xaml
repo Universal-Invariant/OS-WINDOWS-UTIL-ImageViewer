@@ -131,6 +131,8 @@
                 <ColumnDefinition Width="120"/>
                 <!-- Fit-to-width toggle -->
                 <ColumnDefinition Width="Auto"/>
+                <!-- Scroll-by-image toggle -->
+                <ColumnDefinition Width="Auto"/>
                 <!-- Recurse toggle -->
                 <ColumnDefinition Width="Auto"/>
                 <!-- Path combo -->
@@ -173,19 +175,26 @@
                 <TextBlock Text="&#xE790;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
             </ToggleButton>
 
+            <!-- Two-state "scroll one image per wheel tick" toggle -->
+            <ToggleButton Grid.Column="5" Name="TGB_ScrollByImage" Style="{StaticResource ToggleButtonStyle}"
+                          Checked="TGB_ScrollByImage_Changed" Unchecked="TGB_ScrollByImage_Changed"
+                          ToolTip="Mouse wheel scrolls one image at a time (instead of by pixel)">
+                <TextBlock Text="&#xE8B1;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+            </ToggleButton>
+
             <!-- Two-state recursion toggle (replaces label + checkbox) -->
-            <ToggleButton Grid.Column="5" Name="TGB_Recurse" Style="{StaticResource ToggleButtonStyle}"
+            <ToggleButton Grid.Column="6" Name="TGB_Recurse" Style="{StaticResource ToggleButtonStyle}"
                           Checked="CB_Recurse_Changed" Unchecked="CB_Recurse_Changed"
                           ToolTip="Include subdirectories (recursion)">
                 <TextBlock Text="&#xE8B7;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
             </ToggleButton>
 
-            <ComboBox Grid.Column="6" x:Name="CB_Path" Style="{StaticResource ToolComboBox}"
+            <ComboBox Grid.Column="7" x:Name="CB_Path" Style="{StaticResource ToolComboBox}"
                       Width="260" MinWidth="120" IsEditable="True" VerticalContentAlignment="Center"
                       KeyDown="CB_Path_KeyDown" DropDownClosed="CB_Path_DropDownClosed" SelectionChanged="CB_Path_SelectionChanged"/>
 
             <!-- Browse button (folder icon) - now actually hooked up -->
-            <Button Grid.Column="7" Name="BtnBrowse" Style="{StaticResource ToolButton}" Click="BtnBrowse_Click"
+            <Button Grid.Column="8" Name="BtnBrowse" Style="{StaticResource ToolButton}" Click="BtnBrowse_Click"
                     ToolTip="Browse for a folder...">
                 <Canvas Width="18" Height="14">
                     <Path Fill="#FFFFD477" Data="M 0,1 L 6,1 L 8,3 L 17,3 L 17,13 L 0,13 Z"/>
@@ -195,7 +204,7 @@
             </Button>
 
             <!-- Settings gear - pops up the settings dialog -->
-            <Button Grid.Column="8" Name="BtnSettings" Style="{StaticResource ToolButton}" Click="BtnSettings_Click"
+            <Button Grid.Column="9" Name="BtnSettings" Style="{StaticResource ToolButton}" Click="BtnSettings_Click"
                     ToolTip="Settings">
                 <Canvas Width="16" Height="16">
                     <Path Fill="#FFE1E1E1" Data="M8,0 L9.8,2.3 L12.6,1.8 L13.1,4.6 L15.6,5.8 L14.1,8.2 L15.6,10.6 L13.1,11.8 L12.6,14.6 L9.8,14.1 L8,16.4 L6.2,14.1 L3.4,14.6 L2.9,11.8 L0.4,10.6 L1.9,8.2 L0.4,5.8 L2.9,4.6 L3.4,1.8 L6.2,2.3 Z"/>
@@ -204,11 +213,11 @@
             </Button>
 
             <!-- Window caption controls -->
-            <Button Grid.Column="9" Name="BtnMinimize" Style="{StaticResource CaptionButton}" Content="&#xE921;"
+            <Button Grid.Column="10" Name="BtnMinimize" Style="{StaticResource CaptionButton}" Content="&#xE921;"
                     Click="BtnMinimize_Click" ToolTip="Minimize"/>
-            <Button Grid.Column="10" Name="BtnMaximize" Style="{StaticResource CaptionButton}" Content="&#xE922;"
+            <Button Grid.Column="11" Name="BtnMaximize" Style="{StaticResource CaptionButton}" Content="&#xE922;"
                     Click="BtnMaximize_Click" ToolTip="Maximize / Restore"/>
-            <Button Grid.Column="11" Name="BtnClose" Style="{StaticResource CloseButton}" Content="&#xE8BB;"
+            <Button Grid.Column="12" Name="BtnClose" Style="{StaticResource CloseButton}" Content="&#xE8BB;"
                     Click="BtnClose_Click" ToolTip="Close"/>
         </Grid>
 
