@@ -21,7 +21,7 @@ namespace ImageViewer
 	}
 
 
- 
+
 
 
 	public class SmartFlowPanel : Panel
@@ -29,15 +29,15 @@ namespace ImageViewer
 
 		Point _Offset;
 		public event EventHandler ItemsVisible;
- 
-		public FlowPanelType Type { get { return _flowPanelType; } set { 
-			_flowPanelType = value; 
+
+		public FlowPanelType Type { get { return _flowPanelType; } set {
+			_flowPanelType = value;
 			switch(value)
 			{
 				case FlowPanelType.HorizontalWrapPanel: MeasureOverrideProc = HorizontalWrapPanelMeasureOverrideProc; ArrangeOverrideProc = HorizontalWrapPanelArrangeOverrideProc; break;
 			}
 		 } } FlowPanelType _flowPanelType = FlowPanelType.HorizontalWrapPanel;
- 
+
 		protected Func<Size, Size> MeasureOverrideProc { get; set; }
 		protected Func<Size, Size> ArrangeOverrideProc { get; set; }
 
@@ -147,14 +147,14 @@ namespace ImageViewer
 
 		void scrollOwnerChanged(ScrollViewer newScrollOwner)
 		{
-			if (ScrollOwner != null) ScrollOwner.ScrollChanged -= new ScrollChangedEventHandler(ScrollOwner_ScrollChanged); 
+			if (ScrollOwner != null) ScrollOwner.ScrollChanged -= new ScrollChangedEventHandler(ScrollOwner_ScrollChanged);
 			if (newScrollOwner != null) newScrollOwner.ScrollChanged += new ScrollChangedEventHandler(ScrollOwner_ScrollChanged);
 		}
-		
+
 		List<Tuple<Rect, UIElement>> VisibleUIElements = new List<Tuple<Rect, UIElement>>(100);
 		void ScrollOwner_ScrollChanged(object sender, ScrollChangedEventArgs e)
 		{
-			
+
 			var height = ScrollOwner.ViewportHeight;
 			var width = ScrollOwner.ViewportWidth;
 			_Offset = new Point(e.HorizontalOffset, e.VerticalOffset);
@@ -180,7 +180,7 @@ namespace ImageViewer
 				if (!VisibleUIElements.Contains(t)) VisibleUIElements.Add(t);
 
 				return true;
-			}); 
+			});
 
 
 			// Get previous images before first found(images not fully displayed)
@@ -264,12 +264,17 @@ namespace ImageViewer
 			if (!availableSize.Width.Equals(_lastAvailableSize.Width))
 			{
 				_lastAvailableSize = availableSize;
+				// ALWAYS force a full relayout when the viewport changes, even
+				// when fit-to-width is OFF: previously relayout was only set inside
+				// the FitToWidthActive() branch, so toggling book view off (or any
+				// size change with book view disabled) returned the cached MeasureSize
+				// and left rows laid out for window-width pages -> massive overlaps.
+				relayout = true;
 				if (FitToWidthActive())
 				{
 					var target = UsableFitWidth(availableSize);
 					if (target > 0)
 					{
-						relayout = true;
 						foreach (UIElement child in InternalChildren)
 						{
 							var img = GetImage(child);
@@ -280,7 +285,7 @@ namespace ImageViewer
 			}
 
 			if (!relayout) return MeasureSize;
-			
+
 			{
 				TempElements.Clear();
 
@@ -289,7 +294,7 @@ namespace ImageViewer
 				var currentLineHeight = 0.0;
 				var currentLineWidth = 0.0;
 				var totalWidth = 0.0;
-				var totalHeight = 0.0; 
+				var totalHeight = 0.0;
 
 				foreach(UIElement child in InternalChildren)
 				{
@@ -307,8 +312,21 @@ namespace ImageViewer
 					// NaN Width/Height would trigger an endless second Measure() of
 					// an already-valid subtree (a large per-scroll CPU cost).
 					var img = GetImage(child);
-					if (img != null && (!child.DesiredSize.Width.Equals(img.Width) || !child.DesiredSize.Height.Equals(img.Height)))
-						child.Measure(infiniteSize);
+					if (img != null)
+					{
+						// Re-measure the image ONLY when its explicit size and its
+						// DesiredSize disagree. Measuring unconditionally was a
+						// regression: Image.MeasureOverride re-decodes/refreshes the
+						// bitmap source, so doing it for every child on every measure
+						// pass froze large folders ("book view broke") and burned CPU
+						// against our laziness goal.
+						if (!img.Width.Equals(img.DesiredSize.Width) ||
+						    !img.Height.Equals(img.DesiredSize.Height))
+							img.Measure(infiniteSize);
+						if (!child.DesiredSize.Width.Equals(img.DesiredSize.Width) ||
+						    !child.DesiredSize.Height.Equals(img.DesiredSize.Height))
+							child.Measure(infiniteSize);
+					}
 
 					// Wrap only when the child would actually extend past the row and
 					// only if the row already contains something. The old ">=" test
@@ -319,13 +337,13 @@ namespace ImageViewer
 					{
 						currentLineWidth = 0;
 						foreach (var t in TempElements) ElementLocations.Add(new Tuple<Rect, UIElement>(new Rect(t.Item1.X, totalHeight, t.Item1.Width, currentLineHeight), t.Item2));
-						totalHeight += currentLineHeight; 
+						totalHeight += currentLineHeight;
 
 						currentLineHeight = 0;
 						TempElements.Clear();
-						
-					} 
- 
+
+					}
+
 					TempElements.Add(new Tuple<Rect, UIElement>(new Rect(currentLineWidth, 0, child.DesiredSize.Width, 0), child));
 
 					currentLineWidth += child.DesiredSize.Width;
@@ -337,17 +355,17 @@ namespace ImageViewer
 				foreach (var t in TempElements) ElementLocations.Add(new Tuple<Rect, UIElement>(new Rect(t.Item1.X, totalHeight, t.Item1.Width, currentLineHeight), t.Item2));
 
 				totalHeight += currentLineHeight;
-				
+
 				MeasureSize = new Size(double.IsPositiveInfinity(availableSize.Width) ? totalWidth : availableSize.Width, double.IsPositiveInfinity(availableSize.Height) ? totalHeight : availableSize.Height);
 				_invalidatedMeasure = false;
-				
-				
+
+
 			}
 
 			return MeasureSize;
 
 		}
- 
+
 
 
 		bool FitToWidthActive()
@@ -406,14 +424,14 @@ namespace ImageViewer
 			}
 
 			_invalidatedArrange = false;
-			return finalSize; 
+			return finalSize;
 		}
 
- 
+
 
 	}
- 
- 
+
+
 
 
 

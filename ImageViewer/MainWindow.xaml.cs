@@ -95,6 +95,13 @@ namespace ImageViewer
         // width equals the usable window width times this factor. Kept below
         // 1.0 so rounding drift can never push an image past the wrap
         // threshold in SmartFlowPanel (which would create overlapping rows).
+        // Safety margin below the raw layout width. Must EXCEED the vertical
+        // scrollbar width (~17 DIU): with HorizontalScrollBarVisibility=Disabled
+        // WPF reserves no gutter, so a page sized to exactly 100% of the extent
+        // width plus a row containing an image taller than the viewport would
+        // trigger the scrollbar appearing mid-layout -> extent shrinks ~17px ->
+        // wrap test fails -> two window-width pages share one row and overlap
+        // ("book view" chaos). 1.5% covers it for any sane window width.
         const double FitToWidthFactor = 0.985;
 
         // Scale slider drag throttle: ApplyScale() is O(all images), so we
@@ -301,24 +308,14 @@ namespace ImageViewer
                 }
             }
 
-            // Set the selected path (e.g., last used)
+            // Set the selected path (e.g., last used). NOTE: do NOT set
+            // SelectedIndex here - on an editable ComboBox that rewrites Text
+            // asynchronously and clobbers whatever the user typed next. Assign
+            // .Text only; the recent-paths items above remain selectable from
+            // the dropdown. (The ctor's early load, if LastUsedPath exists,
+            // already populated oldPath so this assignment won't skip a reload.)
             if (!string.IsNullOrEmpty(Settings.Default.LastUsedPath))
-            {
-                // Check if the path is in the combobox items list
-                int index = CB_Path.Items.IndexOf(Settings.Default.LastUsedPath);
-                if (index >= 0)
-                {
-                    CB_Path.SelectedIndex = index; // Select the item if it exists
-                }
-                else
-                {
-                    // If path isn't in the list (e.g., was deleted), just set the text
-                    CB_Path.Text = Settings.Default.LastUsedPath;
-                }
-                // Trigger path loading if needed, perhaps by calling TextBox_TextChanged logic
-                // or ensuring the path is loaded after initialization if it's valid
-                // For now, let's just set the text, and user can press Enter or change selection to load
-            }
+                CB_Path.Text = Settings.Default.LastUsedPath;
         }
 
         private void SaveSettings()
@@ -544,10 +541,15 @@ namespace ImageViewer
         {
             if (e.Key == Key.Enter)
             {
-                // Trigger the path loading logic
-                TextBox_TextChanged(CB_Path, null);
+                // Force a reload of the typed path even when it equals the
+                // currently-loaded one (the old order - load first, then null
+                // oldPath - left oldPath==null after Enter: the next real path
+                // change was treated as "first load", skipped remembering, and
+                // re-entrancy during the item churn could spawn a second
+                // concurrent folder worker -> LV.Items race / crash).
                 oldPath = null;
-
+                TextBox_TextChanged(CB_Path, null);
+                e.Handled = true;   // don't let the combo treat Enter as dropdown toggle
             }
         }
 
@@ -1016,6 +1018,15 @@ namespace ImageViewer
             if (oldPath == null || string.Compare(oldPath.TrimEnd('\\'), t.TrimEnd('\\')) == 0) return;
 
             cb.Foreground = tbBrush;
+
+            // Set oldPath BEFORE touching the items collection: Items.Remove /
+            // Items.Insert / SelectedIndex=0 mutate ComboBox.Text and re-raise
+            // TextChanged on an editable ComboBox. With the old order the
+            // re-entrant call saw oldPath==null ("first load" guard) and kicked
+            // off a SECOND BackgroundWorker enumerating the same folder - two
+            // workers racing Clear/Add on LV.Items (the crashes), and the churn
+            // around Remove/Insert is also why typed paths sometimes vanished
+            // from the recent list instead of being remembered.
             oldPath = t;
 
             // New folder => re-aim the file-system watcher and clear any stale
@@ -1024,10 +1035,16 @@ namespace ImageViewer
             SetRefreshIndicator(false);
             UpdateFolderWatch();
 
-            cb.Items.Remove(t); // Note when removing a value from the items it removes it from the Text element to since Text = Items[SelectedIndex]
-            cb.Items.Insert(0, t);
+            if (!cb.Items.Contains(t))
+                cb.Items.Insert(0, t);
+            else if (cb.Items.IndexOf(t) != 0)
+            {
+                cb.Items.Remove(t);
+                cb.Items.Insert(0, t);
+            }
             while (cb.Items.Count > MaxRecentPaths) cb.Items.RemoveAt(cb.Items.Count - 1);
             cb.SelectedIndex = 0;
+            cb.Text = t;    // restore exactly what the user typed
 
 
             if (currentRecurser != null) currentRecurser.CancelAsync();
