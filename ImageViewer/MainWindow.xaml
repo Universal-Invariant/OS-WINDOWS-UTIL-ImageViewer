@@ -1,4 +1,4 @@
-<Window x:Class="ImageViewer.MainWindow"
+﻿<Window x:Class="ImageViewer.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ImageViewer="clr-namespace:ImageViewer"
@@ -233,6 +233,21 @@
         </Grid>
 
         <!--<ScrollViewer CanContentScroll="True" ScrollChanged="LV_ScrollChanged">-->
+        <!-- Item container style: the default ListViewItem chrome (Padding 16px L/R +
+             border + MinHeight) inflated every image slot by ~20px and desynced the
+             row math from the scroll-by-image snapping. Strip it so the container's
+             DesiredSize == the LazyImage's exact size. -->
+        <ListView.ItemContainerStyle>
+            <Style TargetType="ListViewItem">
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Margin" Value="0"/>
+                <Setter Property="MinWidth" Value="0"/>
+                <Setter Property="MinHeight" Value="0"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+            </Style>
+        </ListView.ItemContainerStyle>
         <ListView Name="LV" Background="AliceBlue" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" SelectionMode="Multiple" HorizontalAlignment="Center">
             HorizontalAlignment="Stretch"
           VerticalAlignment="Stretch"

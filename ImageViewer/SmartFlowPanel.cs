@@ -56,7 +56,7 @@ namespace ImageViewer
 		public static SmartFlowPanel Current = null;
 		public SmartFlowPanel() { Type = FlowPanelType.HorizontalWrapPanel; ElementLocations.ItemKey = (t) => { return t.Item1.Y; }; Current = this; }
 
-		public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArrange = true; InvalidateMeasure(); InvalidateVisual(); } bool _invalidatedMeasure = true; bool _invalidatedArrange = true;
+		public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArrange = true; InvalidateRowCache(); InvalidateMeasure(); InvalidateVisual(); } bool _invalidatedMeasure = true; bool _invalidatedArrange = true;
 
 
 	// --- Row lookup for "scroll by image" ------------------------
@@ -75,32 +75,73 @@ namespace ImageViewer
 	/// The row with the SMALLEST Y that is >= y. Returns default(Rect) (IsEmpty)
 	/// when none exists; callers guard with HasRows.
 	/// </summary>
+	/// <summary>
+	/// The row with the SMALLEST Y that is >= y. Returns default(Rect) (IsEmpty)
+	/// when none exists; callers guard with HasRows.
+	/// </summary>
 	public Rect GetFirstRowBelow(double y)
 	{
+		var rows = GetDistinctRows();
 		Rect? best = null;
-		VisitAll(ElementLocations.Root, delegate(Tuple<Rect, UIElement> t)
-		{
-			var r = t.Item1;
+		foreach (var r in rows)
 			if (r.Y >= y && (best == null || r.Y < best.Value.Y)) best = r;
-		});
 		return best ?? default(Rect);
 	}
 
 	/// <summary>
-	/// The bottom-most row whose TOP edge is strictly above y (the row currently
-	/// cut off at the viewport top, or just before it). Returns default(Rect)
+	/// The bottom-most row whose TOP edge is strictly above y. Returns default(Rect)
 	/// when none exists; callers guard with HasRows.
 	/// </summary>
 	public Rect GetLastRowAbove(double y)
 	{
+		var rows = GetDistinctRows();
 		Rect? best = null;
-		VisitAll(ElementLocations.Root, delegate(Tuple<Rect, UIElement> t)
-		{
-			var r = t.Item1;
+		foreach (var r in rows)
 			if (r.Y < y && (best == null || r.Y > best.Value.Y)) best = r;
-		});
 		return best ?? default(Rect);
 	}
+
+	/// <summary>
+	/// The row whose vertical span COVERS viewport position yTop:
+	///   row.Y <= yTop + eps  AND  row.Bottom > yTop + eps.
+	/// Unlike GetLastRowAbove this correctly reports being *inside* a tall
+	/// (book-page) row instead of always returning the topmost row above it -
+	/// which is what made scrolling up from deep inside a tall image snap past
+	/// its top and read as "looping back to the first image".
+	/// Returns default(Rect) when no row covers yTop (gap between rows).
+	/// </summary>
+	public Rect GetRowCovering(double yTop)
+	{
+		var rows = GetDistinctRows();
+		const double eps = 2.0;
+		Rect? best = null;
+		foreach (var r in rows)
+			if (r.Y <= yTop + eps && r.Bottom > yTop + eps &&
+			    (best == null || r.Y > best.Value.Y)) best = r;
+		return best ?? default(Rect);
+	}
+
+	// Distinct row rectangles (one per layout row). ElementLocations stores one
+	// entry PER ELEMENT keyed by the row's Y, so a row of five images appears
+	// five times; the HashSet dedupes them cheaply. Rebuilt only when the
+	// layout changed (any relayout flips _rowsDirty), so repeated wheel ticks
+	// over an unchanged layout are nearly free and never touch lazy loading.
+	readonly HashSet<Rect> _rowSet = new HashSet<Rect>();
+	List<Rect> _distinctRows;
+	bool _rowsDirty = true;
+
+	void InvalidateRowCache() { _rowsDirty = true; }
+
+	List<Rect> GetDistinctRows()
+	{
+		if (!_rowsDirty && _distinctRows != null) return _distinctRows;
+		_rowSet.Clear();
+		VisitAll(ElementLocations.Root, delegate(Tuple<Rect, UIElement> t) { _rowSet.Add(t.Item1); });
+		_distinctRows = new List<Rect>(_rowSet);
+		_rowsDirty = false;
+		return _distinctRows;
+	}
+
 
 	// Iterative (stack-based) pre-order walk of the whole AVL tree invoking act
 	// for EVERY laid-out element - both node.Value and any duplicates in
@@ -291,6 +332,7 @@ namespace ImageViewer
 				TempElements.Clear();
 
 				ElementLocations.Clear();
+				InvalidateRowCache();
 
 				var currentLineHeight = 0.0;
 				var currentLineWidth = 0.0;
@@ -312,9 +354,20 @@ namespace ImageViewer
 					// the LazyImage inside them - comparing against the container's
 					// NaN Width/Height would trigger an endless second Measure() of
 					// an already-valid subtree (a large per-scroll CPU cost).
+					// CRITICAL: compare against the IMAGE's rendered DesiredSize, not its
+					// raw explicit Width/Height. ListViewItem containers add item chrome
+					// (default Padding 16px left/right + border), so container.DesiredSize =
+					// image size + padding and the old comparison could NEVER match: every
+					// child got measured twice per pass (CPU waste) and stale DesiredSizes
+					// slipped through into the row math (~20px position errors).
 					var img = GetImage(child);
-					if (img != null && (!child.DesiredSize.Width.Equals(img.Width) || !child.DesiredSize.Height.Equals(img.Height)))
-						child.Measure(infiniteSize);
+					if (img != null)
+					{
+						img.Measure(infiniteSize);   // force the image itself to re-measure at its new explicit size
+						if (!child.DesiredSize.Width.Equals(img.DesiredSize.Width) ||
+						    !child.DesiredSize.Height.Equals(img.DesiredSize.Height))
+							child.Measure(infiniteSize);
+					}
 
 					// Wrap only when the child would actually extend past the row and
 					// only if the row already contains something. The old ">=" test

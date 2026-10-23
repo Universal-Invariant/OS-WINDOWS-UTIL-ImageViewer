@@ -1,4 +1,4 @@
-using ImageViewer.Properties;
+﻿using ImageViewer.Properties;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -809,95 +809,90 @@ namespace ImageViewer
             if (sv == null) return;
             if (sv.ScrollableHeight <= 0) { e.Handled = true; return; }   // nothing to scroll at all
 
-            // NOTE: row rectangles in SmartFlowPanel.ElementLocations are stored in the
-            // panel's OWN coordinate space (MeasureOverride receives an infinite extent,
-            // so each child is measured with a fresh Rect(0,0,...) origin and arranged
-            // relative to that). The ScrollViewer's VerticalOffset, however, includes any
-            // fixed chrome ABOVE the panel inside the scroll content (e.g. the ListView
-            // header row - ~20px), which is why every snap was consistently short by that
-            // amount. Derive the panel-space offset once from the panel's actual rendered
-            // position (TransformToVisual is authoritative and self-correcting: it returns
-            // -VerticalOffset + chrome automatically) and convert back for scrolling.
-            double offset = sv.VerticalOffset;
-            GeneralTransform gt = panel.TransformToVisual(sv);
-            if (gt != null)
-                offset = -gt.Transform(new Point(0, 0)).Y;         // panel-space y at viewport top
+            // ---- Coordinate spaces ------------------------------------------------
+            // Row rects in SmartFlowPanel.ElementLocations are in the PANEL's own
+            // space. The ScrollViewer's VerticalOffset is in CONTENT space, which can
+            // differ by any fixed chrome sitting above the panel inside the scroll
+            // content (item headers, ListView artifacts, etc.). Instead of assuming
+            // where the panel starts, transform the viewport-top point into panel
+            // space directly - this is exact no matter what chrome exists:
+            //     yTop_panel = -VerticalOffset - panelY_in_sv
             const double eps = 2.0;                                // slop for layout rounding
             bool down = e.Delta < 0;
-            double vpH = Math.Max(1.0, sv.ViewportHeight);         // app-window usable height
+            double vpH = Math.Max(1.0, sv.ViewportHeight);         // usable app-window height
+            GeneralTransform gt = panel.TransformToVisual(sv);
+            double panelTopInSv = gt != null ? gt.Transform(new Point(0, 0)).Y : 0.0;
+            double yTop = Math.Max(0.0, sv.VerticalOffset - panelTopInSv);  // viewport top in PANEL space
+            double svBefore = sv.VerticalOffset;                            // remember for the failsafe
 
-            // Snap-to-row logic: if the viewport top is cut through the middle of
-            // a row (from a previous partial/pixel scroll or a resize), the first
-            // notch only snaps that sliver away so the next whole row sits at the
-            // very top; when already aligned, each notch moves exactly one row -
-            // clamped to one viewport height for oversized rows (paged scroll).
-            // IMPORTANT: `offset` here is in PANEL coordinate space (see note above);
-            // every target computed below is also panel-space and gets converted back
-            // to ScrollViewer offset space via chromeOffset at the ScrollTo call.
-            double chromeOffset = sv.VerticalOffset - offset;      // fixed chrome above panel inside scroll content
-
-            // "Undershoot" setting (0-50 % of the viewport height): when PAGING
-            // through an image taller than the window, each notch moves one
-            // viewport height MINUS this overlap, so a strip of the previous
-            // screen stays visible for orientation. It applies ONLY to in-row
-            // paging (both directions); snapping between whole rows stays exact.
+            // Undershoot setting (0-50 %): paging through an oversized row moves one
+            // viewport MINUS this overlap so a strip of the previous screen stays visible.
             int usPct = 0;
             try { usPct = Settings.Default.ScrollUndershootPercent; } catch { }
             usPct = Math.Max(0, Math.Min(50, usPct));
             double pageStep = Math.Max(1.0, vpH * (1.0 - usPct / 100.0));
 
-            double target;
+            // The row that COVERS the viewport top (its span contains yTop). Using a
+            // covering test instead of "last row above" is what fixes scrolling inside
+            // tall book pages: deep inside a 1000x100000 image, cur is THAT row, so we
+            // page by viewport chunks instead of snapping past its top to row #0.
+            Rect cur = panel.GetRowCovering(yTop);
+            bool hasCur = !cur.IsEmpty || cur.Height > 0;
+
+            double target;                                         // in PANEL space
             if (down)
             {
-                var cur = panel.GetLastRowAbove(offset + eps);     // row occupying the viewport top
-                bool hasCur = !cur.IsEmpty || cur.Height > 0;
-                bool rowOversized = hasCur && cur.Height > vpH + eps;
-
                 if (!panel.HasRows)
-                    target = offset + sv.ScrollableHeight;         // no layout data -> bottom (panel-space approx)
-                else if (rowOversized && offset + pageStep < cur.Bottom - eps)
+                    target = yTop + sv.ScrollableHeight;           // no layout data -> approx bottom
+                else if (hasCur && cur.Bottom > yTop + vpH + eps)
                 {
-                    // Tall row still extends below the viewport (whether we are
-                    // aligned at its top or mid-way through it): page down by the
-                    // (viewport - undershoot) step, but never past the row's
-                    // bottom edge - landing exactly there makes the NEXT notch
-                    // snap cleanly to the following row's top. This is what lets
-                    // a 1000x1000000 image be scrolled screen-by-screen instead
-                    // of jumping over it entirely.
-                    target = Math.Min(offset + pageStep, cur.Bottom);
+                    // Inside an oversized row with more of it below the viewport:
+                    // page down one (undershot) step, but never past the row's bottom
+                    // edge - landing exactly on Bottom makes the NEXT notch snap to the
+                    // following row's top cleanly.
+                    target = Math.Min(yTop + pageStep, cur.Bottom);
                 }
                 else
                 {
-                    var r = panel.GetFirstRowBelow(offset + eps);  // first row starting below the top edge
+                    // Aligned between rows (or current row fully visible): snap the
+                    // first row that starts strictly below the viewport top to the top.
+                    var r = panel.GetFirstRowBelow(yTop + eps);
                     if (r.IsEmpty && r.Height <= 0)
-                        target = offset + sv.ScrollableHeight;     // no rows below -> bottom
+                        target = yTop + sv.ScrollableHeight;       // no rows below -> bottom
                     else
-                        target = r.Y;                              // snap that row to the viewport top
+                    {
+                        target = r.Y;
+                        // If the next row starts essentially AT the current top (a
+                        // zero-height sliver), skip forward to the row after it so a
+                        // wheel tick can never compute target == yTop and stall.
+                        if (target - yTop < eps)
+                        {
+                            var rNext = panel.GetFirstRowBelow(target + eps);
+                            if (!(rNext.IsEmpty) || rNext.Height > 0) target = rNext.Y;
+                        }
+                    }
                 }
             }
             else
             {
-                var cur = panel.GetLastRowAbove(offset + eps);     // row occupying the viewport top
-                bool hasCur = !cur.IsEmpty || cur.Height > 0;
                 if (!panel.HasRows || !hasCur)
                     target = 0;                                    // nothing above -> top
-                else if (offset - cur.Y > eps)
+                else if (yTop - cur.Y > eps)
                 {
-                    // Mid-row. Two cases:
-                    if (cur.Height > vpH + eps && offset - pageStep >= cur.Y + eps)
-                        target = offset - pageStep;                // oversized row, still inside it: page up one (undershot) step
+                    // Mid-row sliver or deep inside a tall row.
+                    if (cur.Bottom - cur.Y > vpH + eps && yTop - pageStep >= cur.Y + eps)
+                        target = yTop - pageStep;                  // oversized row, still inside it: page up one undershot step
                     else
                         target = cur.Y;                            // ordinary sliver -> snap back to this row's top
                 }
                 else
                 {
-                    // Aligned at cur's top. If the PREVIOUS row is oversized it
-                    // cannot fit in the viewport anyway, so land near ITS bottom
-                    // edge (one screenful of it fills the view) rather than its
-                    // unreachable top; otherwise snap to its top (clean row step).
+                    // Aligned at cur's top -> jump to the previous row. If that row is
+                    // taller than the viewport we cannot show its top usefully, so land
+                    // one (undershot) screenful ABOVE its bottom edge instead.
                     var prev = panel.GetLastRowAbove(cur.Y - eps);
                     if (prev.IsEmpty && prev.Height <= 0)
-                        target = 0;                                // nothing above -> top
+                        target = 0;
                     else if (prev.Height > vpH + eps)
                         target = Math.Max(0.0, prev.Bottom - pageStep);
                     else
@@ -905,21 +900,17 @@ namespace ImageViewer
                 }
             }
 
-            // Convert panel-space target back to ScrollViewer offset space and clamp:
-            // never past the ends, never negative.
-            double svTarget = target + chromeOffset;
+            // Convert panel-space target back to ScrollViewer offset space and clamp.
+            double svTarget = target + panelTopInSv;
             if (svTarget < 0) svTarget = 0;
             if (svTarget > sv.ScrollableHeight) svTarget = sv.ScrollableHeight;
 
             sv.ScrollToVerticalOffset(svTarget);
 
-            // Failsafe: if our row math produced no movement (e.g. stale layout
-            // data right after a resize/scale change while MeasureOverride hasn't
-            // re-run yet), fall back to plain line scrolling for THIS tick so the
-            // wheel can never feel dead. Next tick retries the snap (this also
-            // covers legacy WPF keyboard scrolling, which is line-based and was
-            // what made the arrow keys feel "half off").
-            if (Math.Abs(sv.VerticalOffset - offset) < 0.5)
+            // Failsafe: stale layout right after resize/scale could compute target ==
+            // current; fall back to plain line scrolling for THIS tick so the wheel can
+            // never feel dead (next tick retries once MeasureOverride has re-run).
+            if (Math.Abs(sv.VerticalOffset - svBefore) < 0.5)
             {
                 if (down) sv.LineDown();
                 else sv.LineUp();
