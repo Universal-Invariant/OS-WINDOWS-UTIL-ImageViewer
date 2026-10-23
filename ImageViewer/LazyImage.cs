@@ -78,13 +78,7 @@ namespace ImageViewer
             double w = _originalWidth;
             double h = _originalHeight;
 
-            // NOTE: Image.Width/Height (and therefore _originalWidth/_originalHeight)
-            // are WPF device-independent units (1/96"). The threshold setting is in
-            // real pixels, so convert before comparing - otherwise a 500px-wide icon
-            // (≈520 DIU at 96dpi but only ≈375 DIU at 144dpi) would be treated
-            // inconsistently across machines/DPI settings.
-            double minPxInDiu = minWidthInPixels / 96.0;
-            bool fits = targetWidth > 0 && (_originalWidth >= minPxInDiu || _originalHeight >= minPxInDiu);
+            bool fits = targetWidth > 0 && (_originalWidth * 96.0 >= minWidthInPixels || _originalHeight * 96.0 >= minWidthInPixels);
             if (fits)
             {
                 // Book format: derive the scale directly from the current
