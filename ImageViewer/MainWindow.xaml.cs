@@ -813,7 +813,14 @@ namespace ImageViewer
         private void TGB_ScrollByImage_Changed(object sender, RoutedEventArgs e)
         {
             Settings.Default.ScrollByImage = TGB_ScrollByImage.IsChecked ?? false;
+            // Leaving scroll-by-image mode: drop any half-accumulated fractional
+            // delta so re-enabling the mode doesn't fire a stale snap.
+            _wheelAccum = 0;
         }
+
+        // Fractional wheel-delta accumulator (touchpads / high-precision wheels).
+        int _wheelAccum = 0;
+        int _wheelNotches = 0;
 
         // --- Scroll-by-image -------------------------------------------------
         // When the toggle is on, one wheel notch moves one image ROW - but never
@@ -847,6 +854,35 @@ namespace ImageViewer
             //     yTop_panel = -VerticalOffset - panelY_in_sv
             const double eps = 2.0;                                // slop for layout rounding
             bool down = e.Delta < 0;
+            // High-precision devices (touchpads, free-spinning mouse wheels) send
+            // |delta| far below the classic 120 notch. Treat a full notch as one
+            // row/page step and accumulate smaller deltas so a trackpad swipe
+            // pages through book views proportionally instead of firing a snap on
+            // every sub-notch event.
+            int mag = Math.Abs(e.Delta);
+            // Rows advanced per full wheel notch (1-5, from the settings dialog).
+            int perNotch = 1;
+            try { perNotch = Settings.Default.ScrollNotchRows; } catch { }
+            perNotch = Math.Max(1, Math.Min(5, perNotch));
+            // Fractional (high-precision) deltas accumulate across events so a
+            // trackpad swipe eventually advances exactly one row/page step;
+            // classic 120-unit notches always yield exactly `perNotch` per tick.
+            if (mag >= 120)
+            {
+                _wheelAccum = 0;
+                _wheelNotches = Math.Max(1, (int)Math.Round(mag / 120.0)) * perNotch;
+            }
+            else
+            {
+                _wheelAccum += mag;
+                _wheelNotches = 0;
+                while (_wheelAccum >= 120) { _wheelAccum -= 120; ++_wheelNotches; }
+                if (_wheelNotches == 0)
+                {
+                    e.Handled = true;   // consumed: suppress pixel scrolling but don't snap yet
+                    return;
+                }
+            }
             double vpH = Math.Max(1.0, sv.ViewportHeight);         // usable app-window height
             GeneralTransform gt = panel.TransformToVisual(sv);
             double panelTopInSv = gt != null ? gt.Transform(new Point(0, 0)).Y : 0.0;
@@ -860,11 +896,17 @@ namespace ImageViewer
             usPct = Math.Max(0, Math.Min(50, usPct));
             double pageStep = Math.Max(1.0, vpH * (1.0 - usPct / 100.0));
 
-            // The row that COVERS the viewport top (its span contains yTop). Using a
-            // covering test instead of "last row above" is what fixes scrolling inside
-            // tall book pages: deep inside a 1000x100000 image, cur is THAT row, so we
-            // page by viewport chunks instead of snapping past its top to row #0.
-            Rect cur = panel.GetRowCovering(yTop);
+            // The row that OCCUPIES the viewport top, chosen by start position
+            // (largest row.Y <= yTop). Using a start-position test instead of a
+            // strict "span covers" test is what fixes scrolling inside tall book
+            // pages: after a notch lands exactly one page step into an oversized
+            // row, yTop sits precisely on the shared edge between two consecutive
+            // window-height pages, where the old Bottom > yTop + eps covering test
+            // failed and every subsequent tick computed target == current offset.
+            // Now cur is always THAT row, so we keep paging by viewport chunks
+            // (minus the overlap setting) until the row's bottom edge passes the
+            // viewport top, at which point the next row snaps cleanly to the top.
+            Rect cur = panel.GetRowAtOrAbove(yTop);
             bool hasCur = !cur.IsEmpty || cur.Height > 0;
 
             double target;                                         // in PANEL space
@@ -872,13 +914,15 @@ namespace ImageViewer
             {
                 if (!panel.HasRows)
                     target = yTop + sv.ScrollableHeight;           // no layout data -> approx bottom
-                else if (hasCur && cur.Bottom > yTop + vpH + eps)
+                else if (hasCur && cur.Bottom > yTop + pageStep * notches + eps)
                 {
                     // Inside an oversized row with more of it below the viewport:
-                    // page down one (undershot) step, but never past the row's bottom
+                    // page down (undershot) steps, but never past the row's bottom
                     // edge - landing exactly on Bottom makes the NEXT notch snap to the
-                    // following row's top cleanly.
-                    target = Math.Min(yTop + pageStep, cur.Bottom);
+                    // following row's top cleanly. The test uses the FULL multi-notch
+                    // step so a 2-notch event inside a tall page stays in paging mode
+                    // instead of snapping to the next row and skipping content.
+                    target = Math.Min(yTop + pageStep * notches, cur.Bottom);
                 }
                 else
                 {
@@ -898,6 +942,14 @@ namespace ImageViewer
                             var rNext = panel.GetFirstRowBelow(target + eps);
                             if (!(rNext.IsEmpty) || rNext.Height > 0) target = rNext.Y;
                         }
+                        // Multi-notch events: continue stepping whole rows so a fast
+                        // scroll keeps up without entering pixel-fallback territory.
+                        for (int i = 1; i < notches; i++)
+                        {
+                            var rn = panel.GetFirstRowBelow(target + eps);
+                            if (rn.IsEmpty && rn.Height <= 0) break;
+                            target = rn.Y;
+                        }
                     }
                 }
             }
@@ -908,8 +960,9 @@ namespace ImageViewer
                 else if (yTop - cur.Y > eps)
                 {
                     // Mid-row sliver or deep inside a tall row.
-                    if (cur.Bottom - cur.Y > vpH + eps && yTop - pageStep >= cur.Y + eps)
-                        target = yTop - pageStep;                  // oversized row, still inside it: page up one undershot step
+                    double stepUp = pageStep * notches;
+                    if (cur.Bottom - cur.Y > vpH + eps && yTop - stepUp >= cur.Y + eps)
+                        target = yTop - stepUp;                    // oversized row, still inside it: page up undershot steps
                     else
                         target = cur.Y;                            // ordinary sliver -> snap back to this row's top
                 }
@@ -922,9 +975,19 @@ namespace ImageViewer
                     if (prev.IsEmpty && prev.Height <= 0)
                         target = 0;
                     else if (prev.Height > vpH + eps)
-                        target = Math.Max(0.0, prev.Bottom - pageStep);
+                        target = Math.Max(0.0, prev.Bottom - pageStep * notches);
                     else
+                    {
                         target = prev.Y;
+                        // Multi-notch events: keep walking whole rows upward.
+                        for (int i = 1; i < notches; i++)
+                        {
+                            var pn = panel.GetLastRowAbove(target - eps);
+                            if (pn.IsEmpty && pn.Height <= 0) { target = 0; break; }
+                            if (pn.Height > vpH + eps) { target = Math.Max(0.0, pn.Bottom - pageStep); break; }
+                            target = pn.Y;
+                        }
+                    }
                 }
             }
 
