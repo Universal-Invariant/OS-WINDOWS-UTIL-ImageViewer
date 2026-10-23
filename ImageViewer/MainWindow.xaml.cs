@@ -172,6 +172,13 @@ namespace ImageViewer
             StateChanged += (s, ev) => UpdateMaximizeGlyph();
             UpdateMaximizeGlyph();
 
+            // Apply the remembered Normal/Maximized state after Show() has run.
+            // Geometry was already restored in OnSourceInitialized; deferring
+            // the state to Loaded is what makes it stick (see RestoreWindowState
+            // docs) - WPF's own show-time handling of the XAML default used to
+            // preempt restores done earlier and re-pick the primary monitor.
+            Loaded += (s, ev) => ApplySavedWindowState();
+
             // Re-layout the images when the window is resized so that
             // fit-to-width / max-size clamping always tracks the window size.
             SizeChanged += MainWindow_SizeChanged;
@@ -297,11 +304,30 @@ namespace ImageViewer
         }
 
 
+        // Saved window state from the last run; consumed once by
+        // RestoreWindowState() in SourceInitialized. -999 = "nothing saved".
+        int _savedWindowState = -999;
+
+        // The native HWND is created here, *before* WPF applies the XAML
+        // default WindowState="Maximized" during Show(). Restoring geometry
+        // at this point means:
+        //  - a remembered Normal state actually sticks (the XAML Maximized
+        //    default would otherwise preempt a later restore), and
+        //  - the remembered Left/Top become the window's owning monitor, so
+        //    restoring down / maximizing lands on that monitor instead of
+        //    snapping back to the primary one.
+        // Hook the native window procedure so that maximizing a borderless
+        // window covers the whole monitor (no clipped edges / off-screen margins).
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            var source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            source?.AddHook(WndProc);
+            RestoreWindowState();
+        }
+
         private void LoadSettings()
         {
-            // Restore the window position/size/state saved at last exit
-            // (must run before any layout is triggered by the settings below).
-            RestoreWindowState();
 
             // Load background color.
             // (The stored default value contains literal quotes - strip them.)
@@ -387,14 +413,41 @@ namespace ImageViewer
                     }
                 }
 
-                // 0 = Normal, 1 = Maximized, 2 = Minimized (never restore minimized).
-                if (Settings.Default.WindowState == (int)System.Windows.WindowState.Maximized)
-                    WindowState = System.Windows.WindowState.Maximized;
+                // Remember the saved state; it is applied in Loaded below.
+                // Setting WindowState to Maximized from a constructor or even
+                // SourceInitialized gets preempted by WPF's own show-time
+                // maximization (which also re-picks the monitor), while
+                // setting Normal there is overridden back to the XAML default.
+                // By Loaded time, Show() has finished and our value sticks -
+                // including restoring down onto the side monitor when the
+                // window was last used in Normal state there.
+                _savedWindowState = Settings.Default.WindowState;
             }
             catch (Exception ex)
             {
                 // Geometry restore must never crash startup; log and continue.
                 Console.WriteLine("Error restoring window state: " + ex.Message);
+            }
+        }
+
+        // Applies the saved Normal/Maximized state once, after Show() has
+        // completed (called from Loaded). -999 / 2 (minimized) are ignored:
+        // we never restore minimized, and "nothing saved" keeps XAML defaults.
+        private void ApplySavedWindowState()
+        {
+            try
+            {
+                if (_savedWindowState == (int)System.Windows.WindowState.Normal ||
+                    _savedWindowState == (int)System.Windows.WindowState.Maximized)
+                    WindowState = (System.Windows.WindowState)_savedWindowState;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error applying saved window state: " + ex.Message);
+            }
+            finally
+            {
+                _savedWindowState = -999; // consume - don't fight later user actions
             }
         }
 
@@ -706,15 +759,6 @@ namespace ImageViewer
             this.InvalidateVisual();
             Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => { })).Wait();
             Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() => { })).Wait();
-        }
-
-        // Hook the native window procedure so that maximizing a borderless
-        // window covers the whole monitor (no clipped edges / off-screen margins).
-        protected override void OnSourceInitialized(EventArgs e)
-        {
-            base.OnSourceInitialized(e);
-            var source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
-            source?.AddHook(WndProc);
         }
 
         private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
