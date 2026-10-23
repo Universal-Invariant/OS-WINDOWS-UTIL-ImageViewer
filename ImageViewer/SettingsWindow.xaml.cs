@@ -22,12 +22,13 @@ namespace ImageViewer
         public double NewDefaultScale { get; private set; }
         public Color NewBackgroundColor { get; private set; }
         public int NewFitToWidthMinImageWidth { get; private set; }
+        public int NewScrollUndershootPercent { get; private set; }
 
         Brush _bgBrush;
 
         public SettingsWindow(bool recurse, bool fitToWidth, bool showStatusBar,
                               int maxSizePercent, double defaultScale, Color backgroundColor,
-                              int minFitWidthPx)
+                              int minFitWidthPx, int scrollUndershootPercent)
         {
             InitializeComponent();
 
@@ -38,6 +39,7 @@ namespace ImageViewer
             NewDefaultScale = defaultScale;
             NewBackgroundColor = backgroundColor;
             NewFitToWidthMinImageWidth = minFitWidthPx;
+            NewScrollUndershootPercent = Math.Max(0, Math.Min(50, scrollUndershootPercent));
 
             CHK_Recurse.IsChecked = recurse;
             CHK_FitToWidth.IsChecked = fitToWidth;
@@ -48,6 +50,9 @@ namespace ImageViewer
 
             SL_MinFitPx.Value = Math.Max(0, Math.Min(2000, minFitWidthPx));
             TB_MinFitPx.Text = ((int)SL_MinFitPx.Value).ToString() + " px";
+
+            SL_Undershoot.Value = NewScrollUndershootPercent;
+            TB_Undershoot.Text = NewScrollUndershootPercent.ToString() + " %";
 
             TB_Scale.Text = defaultScale.ToString("F2");
 
@@ -65,6 +70,12 @@ namespace ImageViewer
         {
             if (TB_MinFitPx != null)
                 TB_MinFitPx.Text = ((int)e.NewValue).ToString() + " px";
+        }
+
+        private void SL_Undershoot_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (TB_Undershoot != null)
+                TB_Undershoot.Text = ((int)e.NewValue).ToString() + " %";
         }
 
         private void TB_Scale_TextChanged(object sender, TextChangedEventArgs e)
@@ -116,6 +127,7 @@ namespace ImageViewer
             NewMaxImageSizePercent = (int)SL_MaxSize.Value;
             NewDefaultScale = scale;
             NewFitToWidthMinImageWidth = (int)SL_MinFitPx.Value;
+            NewScrollUndershootPercent = (int)SL_Undershoot.Value;
 
             DialogResult = true;
             Close();

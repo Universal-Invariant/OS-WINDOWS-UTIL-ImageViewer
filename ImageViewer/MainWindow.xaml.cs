@@ -589,7 +589,8 @@ namespace ImageViewer
                 Settings.Default.MaxImageSizePercent,
                 SD_Scale.Value,
                 bg,
-                Settings.Default.FitToWidthMinImageWidth)
+                Settings.Default.FitToWidthMinImageWidth,
+                Settings.Default.ScrollUndershootPercent)
             {
                 Owner = this
             };
@@ -615,6 +616,9 @@ namespace ImageViewer
 
                 Settings.Default.MaxImageSizePercent = dlg.NewMaxImageSizePercent;
                 Settings.Default.FitToWidthMinImageWidth = dlg.NewFitToWidthMinImageWidth;
+                // Scroll undershoot is read live by the wheel handler on every
+                // notch, so persisting it here is all that's needed (no relayout).
+                Settings.Default.ScrollUndershootPercent = dlg.NewScrollUndershootPercent;
 
                 var newScale = Math.Max(SD_Scale.Minimum, Math.Min(SD_Scale.Maximum, dlg.NewDefaultScale));
                 if (Math.Abs(SD_Scale.Value - newScale) > 0.001)
@@ -721,6 +725,17 @@ namespace ImageViewer
             // every target computed below is also panel-space and gets converted back
             // to ScrollViewer offset space via chromeOffset at the ScrollTo call.
             double chromeOffset = sv.VerticalOffset - offset;      // fixed chrome above panel inside scroll content
+
+            // "Undershoot" setting (0-50 % of the viewport height): when PAGING
+            // through an image taller than the window, each notch moves one
+            // viewport height MINUS this overlap, so a strip of the previous
+            // screen stays visible for orientation. It applies ONLY to in-row
+            // paging (both directions); snapping between whole rows stays exact.
+            int usPct = 0;
+            try { usPct = Settings.Default.ScrollUndershootPercent; } catch { }
+            usPct = Math.Max(0, Math.Min(50, usPct));
+            double pageStep = Math.Max(1.0, vpH * (1.0 - usPct / 100.0));
+
             double target;
             if (down)
             {
@@ -730,15 +745,16 @@ namespace ImageViewer
 
                 if (!panel.HasRows)
                     target = offset + sv.ScrollableHeight;         // no layout data -> bottom (panel-space approx)
-                else if (rowOversized && offset + vpH < cur.Bottom - eps)
+                else if (rowOversized && offset + pageStep < cur.Bottom - eps)
                 {
                     // Tall row still extends below the viewport (whether we are
-                    // aligned at its top or mid-way through it): page down exactly
-                    // one viewport height, but never past the row's bottom edge -
-                    // landing exactly there makes the NEXT notch snap cleanly to the
-                    // following row's top. This is what lets a 1000x1000000 image be
-                    // scrolled screen-by-screen instead of jumping over it entirely.
-                    target = Math.Min(offset + vpH, cur.Bottom);
+                    // aligned at its top or mid-way through it): page down by the
+                    // (viewport - undershoot) step, but never past the row's
+                    // bottom edge - landing exactly there makes the NEXT notch
+                    // snap cleanly to the following row's top. This is what lets
+                    // a 1000x1000000 image be scrolled screen-by-screen instead
+                    // of jumping over it entirely.
+                    target = Math.Min(offset + pageStep, cur.Bottom);
                 }
                 else
                 {
@@ -758,22 +774,22 @@ namespace ImageViewer
                 else if (offset - cur.Y > eps)
                 {
                     // Mid-row. Two cases:
-                    if (cur.Height > vpH + eps && offset - vpH >= cur.Y + eps)
-                        target = offset - vpH;                     // oversized row, still inside it: page up one viewport
+                    if (cur.Height > vpH + eps && offset - pageStep >= cur.Y + eps)
+                        target = offset - pageStep;                // oversized row, still inside it: page up one (undershot) step
                     else
                         target = cur.Y;                            // ordinary sliver -> snap back to this row's top
                 }
                 else
                 {
                     // Aligned at cur's top. If the PREVIOUS row is oversized it
-                    // cannot fit in the viewport anyway, so land on ITS bottom
+                    // cannot fit in the viewport anyway, so land near ITS bottom
                     // edge (one screenful of it fills the view) rather than its
                     // unreachable top; otherwise snap to its top (clean row step).
                     var prev = panel.GetLastRowAbove(cur.Y - eps);
                     if (prev.IsEmpty && prev.Height <= 0)
                         target = 0;                                // nothing above -> top
                     else if (prev.Height > vpH + eps)
-                        target = Math.Max(0.0, prev.Bottom - vpH);
+                        target = Math.Max(0.0, prev.Bottom - pageStep);
                     else
                         target = prev.Y;
                 }

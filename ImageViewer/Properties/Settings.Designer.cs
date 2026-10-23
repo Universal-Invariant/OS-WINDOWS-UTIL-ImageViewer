@@ -141,5 +141,17 @@ namespace ImageViewer.Properties {
                 this["FitToWidthMinImageWidth"] = value;
             }
         }
+
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("10")]
+        public int ScrollUndershootPercent {
+            get {
+                return ((int)(this["ScrollUndershootPercent"]));
+            }
+            set {
+                this["ScrollUndershootPercent"] = value;
+            }
+        }
     }
 }
