@@ -331,13 +331,7 @@ namespace ImageViewer
 			// BEFORE we lay anything out - otherwise the stale sizes overlap the
 			// new row boundaries. Detecting it here (from the actual extent) is
 			// race-free, unlike debouncing on Window.SizeChanged.
-			// NOTE: compare BOTH dimensions. A non-client-area change (toolbar
-			// wrap, window chrome) can hand us a finite-height constraint with an
-			// unchanged width - and a finite constraint is NOT what fit-to-width
-			// sizes were derived from. Treating that as "no change" left stale
-			// sizes on screen (transient overlaps).
-			if (!availableSize.Width.Equals(_lastAvailableSize.Width) ||
-			    !availableSize.Height.Equals(_lastAvailableSize.Height))
+			if (!availableSize.Width.Equals(_lastAvailableSize.Width))
 			{
 				_lastAvailableSize = availableSize;
 				// ALWAYS force a full relayout when the viewport changes, even
@@ -457,28 +451,9 @@ namespace ImageViewer
 			return mw != null && mw.IsFitToWidthEnabled;
 		}
 
-		double UsableFitWidth(Size availableSize)
+		static double UsableFitWidth(Size availableSize)
 		{
 			if (double.IsPositiveInfinity(availableSize.Width) || availableSize.Width < 10) return 0;
-
-			// Derive the EXACT usable width instead of multiplying the constraint
-			// by the safety factor again. Every fit-eligible LazyImage was just
-			// measured/laid out at exactly targetW * scale, so its current explicit
-			// Width divided by its last scale recovers targetW bit-for-bit.
-			// Re-applying 0.985 here would shrink images ~1.5% below their slots -
-			// which showed up as cropped bottoms and phantom overlaps.
-			foreach (UIElement child in InternalChildren)
-			{
-				var img = GetImage(child);
-				if (img == null) continue;
-				if (double.IsNaN(img.Width) || img.Width <= 0) continue;
-				if (!img.FitsWidthTarget()) continue; // small/threshold-excluded images don't encode targetW
-				var scl = img.LastScale;
-				if (scl <= 0 || double.IsNaN(scl)) continue;
-				return img.Width / scl;
-			}
-
-			// First pass (nothing sized yet): fall back to the margin.
 			return availableSize.Width * FitToWidthFraction;
 		}
 
