@@ -577,9 +577,9 @@ namespace ImageViewer
                 TGB_FitToWidth.IsChecked ?? false,
                 SB_Main.Visibility == Visibility.Visible,
                 Settings.Default.MaxImageSizePercent,
-                Settings.Default.FitToWidthMinImageWidth,
                 SD_Scale.Value,
-                bg)
+                bg,
+                Settings.Default.FitToWidthMinImageWidth)
             {
                 Owner = this
             };
@@ -768,16 +768,17 @@ namespace ImageViewer
 
 
 
-                double layoutW = 0, layoutH = 0, fitWidth = 0, maxSizeFactor = 1.0;
+                double layoutW = 0, layoutH = 0, fitWidth = 0, maxSizeFactor = 1.0, minFitPx = 0;
                 Dispatcher.Invoke(new Action(() =>
                 {
                     layoutW = GetLayoutWidth();
                     layoutH = GetLayoutHeight();
                     fitWidth = ComputeFitToWidthScale();
                     maxSizeFactor = MaxSizeFactor();
+                    minFitPx = FitToWidthMinPixels();
                 }));
 
-                LV.Dispatcher.Invoke((Action<string>)((path) => { var item = new LazyImage(path, LV, layoutW * maxSizeFactor, layoutH * maxSizeFactor);  LV.Items.Add(item); item.UpdateSize(ScaleFactor, fitWidth, maxSizeFactor); }), file.FullName);
+                LV.Dispatcher.Invoke((Action<string>)((path) => { var item = new LazyImage(path, LV, layoutW * maxSizeFactor, layoutH * maxSizeFactor);  LV.Items.Add(item); item.UpdateSize(ScaleFactor, fitWidth, maxSizeFactor, minFitPx); }), file.FullName);
 
                 if (count++ > maxDelay)
                 {

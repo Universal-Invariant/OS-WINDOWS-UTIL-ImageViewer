@@ -117,5 +117,17 @@ namespace ImageViewer.Properties {
                 this["MaxImageSizePercent"] = value;
             }
         }
+
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("500")]
+        public int FitToWidthMinImageWidth {
+            get {
+                return ((int)(this["FitToWidthMinImageWidth"]));
+            }
+            set {
+                this["FitToWidthMinImageWidth"] = value;
+            }
+        }
     }
 }

@@ -21,11 +21,13 @@ namespace ImageViewer
         public int NewMaxImageSizePercent { get; private set; }
         public double NewDefaultScale { get; private set; }
         public Color NewBackgroundColor { get; private set; }
+        public int NewFitToWidthMinImageWidth { get; private set; }
 
         Brush _bgBrush;
 
         public SettingsWindow(bool recurse, bool fitToWidth, bool showStatusBar,
-                              int maxSizePercent, double defaultScale, Color backgroundColor)
+                              int maxSizePercent, double defaultScale, Color backgroundColor,
+                              int minFitWidthPx)
         {
             InitializeComponent();
 
@@ -35,6 +37,7 @@ namespace ImageViewer
             NewMaxImageSizePercent = maxSizePercent;
             NewDefaultScale = defaultScale;
             NewBackgroundColor = backgroundColor;
+            NewFitToWidthMinImageWidth = minFitWidthPx;
 
             CHK_Recurse.IsChecked = recurse;
             CHK_FitToWidth.IsChecked = fitToWidth;
@@ -42,6 +45,9 @@ namespace ImageViewer
 
             SL_MaxSize.Value = Math.Max(10, Math.Min(200, maxSizePercent));
             TB_MaxSize.Text = ((int)SL_MaxSize.Value).ToString() + " %";
+
+            SL_MinFitPx.Value = Math.Max(0, Math.Min(2000, minFitWidthPx));
+            TB_MinFitPx.Text = ((int)SL_MinFitPx.Value).ToString() + " px";
 
             TB_Scale.Text = defaultScale.ToString("F2");
 
@@ -53,6 +59,12 @@ namespace ImageViewer
         {
             if (TB_MaxSize != null)
                 TB_MaxSize.Text = ((int)e.NewValue).ToString() + " %";
+        }
+
+        private void SL_MinFitPx_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (TB_MinFitPx != null)
+                TB_MinFitPx.Text = ((int)e.NewValue).ToString() + " px";
         }
 
         private void TB_Scale_TextChanged(object sender, TextChangedEventArgs e)
@@ -103,6 +115,7 @@ namespace ImageViewer
             NewShowStatusBar = CHK_ShowStatusBar.IsChecked ?? false;
             NewMaxImageSizePercent = (int)SL_MaxSize.Value;
             NewDefaultScale = scale;
+            NewFitToWidthMinImageWidth = (int)SL_MinFitPx.Value;
 
             DialogResult = true;
             Close();

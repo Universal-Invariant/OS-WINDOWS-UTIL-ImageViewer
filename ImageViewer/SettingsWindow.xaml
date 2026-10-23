@@ -19,6 +19,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <CheckBox Grid.Row="0" Grid.ColumnSpan="2" Name="CHK_Recurse" Content="Search subdirectories (recursion)"
@@ -46,6 +47,15 @@
             <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,6">
                 <Border Name="BDR_Color" Width="40" Height="20" BorderBrush="#FF808080" BorderThickness="1" CornerRadius="3"/>
                 <Button Content="Change..." Width="70" Height="22" Margin="8,0,0,0" Click="BtnPickColor_Click"/>
+            </StackPanel>
+
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Fit-to-width min. image size (px):" VerticalAlignment="Center" Margin="0,6,8,6"/>
+            <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,6">
+                <Slider Name="SL_MinFitPx" Width="150" Minimum="0" Maximum="2000" Value="500"
+                        TickFrequency="50" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                        ValueChanged="SL_MinFitPx_ValueChanged"
+                        ToolTip="Only images at least this large are scaled up to the window width in book format; smaller ones (icons) keep their scale and flow in between."/>
+                <TextBlock Name="TB_MinFitPx" Width="60" Margin="6,0,0,0" VerticalAlignment="Center" Text="500 px"/>
             </StackPanel>
         </Grid>
 
