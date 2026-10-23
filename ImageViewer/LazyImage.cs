@@ -53,6 +53,18 @@ namespace ImageViewer
         private double _lastMaxSizeFactor = 1.0;
         private double _lastMinFitWidthPx = 0;
 
+        // True when the LAST UpdateSize() call actually applied fit-to-width
+        // (threshold permitting). SmartFlowPanel uses this to recover the exact
+        // target width from our explicit Width without re-applying the safety
+        // margin (double-scaling made every image ~1.5% smaller than its slot,
+        // which looked like cropped bottoms / overlaps).
+        private bool _appliedFitWidth = false;
+
+        /// <summary>Last scale factor passed to UpdateSize().</summary>
+        public double LastScale { get { return _lastScale; } }
+        /// <summary>True if the last sizing pass scaled this image to the window width.</summary>
+        public bool FitsWidthTarget() { return _appliedFitWidth; }
+
         // Scales the image and recomputes its layout size.
         //   scale           : user scale factor from the toolbar slider
         //   targetWidth     : > 0 enables "fit to width" (book format) mode -
@@ -75,6 +87,10 @@ namespace ImageViewer
             _lastMaxSizeFactor = maxSizeFactor;
             _lastMinFitWidthPx = minWidthInPixels;
 
+            // Remember whether THIS call applies fit-to-width so the panel can
+            // recover the exact target width from our rendered size.
+            _appliedFitWidth = false;
+
             double w = _originalWidth;
             double h = _originalHeight;
 
@@ -87,6 +103,7 @@ namespace ImageViewer
                 var c = targetWidth / w;
                 w *= c;
                 h *= c;
+                _appliedFitWidth = true;
             }
 
             w *= scale;
@@ -160,8 +177,14 @@ namespace ImageViewer
 			//this.Source = notloaded;
 			this.Source = null;
 			
-			//this.Stretch = System.Windows.Media.Stretch.Fill;
-			this.Stretch = System.Windows.Media.Stretch.UniformToFill;
+			// Uniform: the image is letterboxed inside its Width x Height
+			// slot and NEVER cropped. The old UniformToFill scaled the bitmap to
+			// FILL the slot and cropped the overflow - combined with fit-to-width's
+			// 0.985 safety margin that crop ate ~1.5% of every image's height
+			// (an 800x1200 page showed ~20px of "missing bottom", which read as
+			// overlap/cropping). Uniform keeps aspect ratio and shows the whole
+			// image inside the exact-size slot.
+			this.Stretch = System.Windows.Media.Stretch.Uniform;
 			Visibility = Visibility.Visible;
 
 			
