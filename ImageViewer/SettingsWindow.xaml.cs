@@ -25,13 +25,15 @@ namespace ImageViewer
         public int NewScrollUndershootPercent { get; private set; }
         public bool NewAutoRefreshOnFolderChange { get; private set; }
         public int NewScrollNotchRows { get; private set; }
+        public bool NewOpenOnDoubleClick { get; private set; }
 
         Brush _bgBrush;
 
         public SettingsWindow(bool recurse, bool fitToWidth, bool showStatusBar,
                               int maxSizePercent, double defaultScale, Color backgroundColor,
                               int minFitWidthPx, int scrollUndershootPercent,
-                              bool autoRefreshOnFolderChange, int scrollNotchRows)
+                              bool autoRefreshOnFolderChange, int scrollNotchRows,
+                              bool openOnDoubleClick)
         {
             InitializeComponent();
 
@@ -45,11 +47,13 @@ namespace ImageViewer
             NewScrollUndershootPercent = Math.Max(0, Math.Min(50, scrollUndershootPercent));
             NewAutoRefreshOnFolderChange = autoRefreshOnFolderChange;
             NewScrollNotchRows = Math.Max(1, Math.Min(5, scrollNotchRows));
+            NewOpenOnDoubleClick = openOnDoubleClick;
 
             CHK_Recurse.IsChecked = recurse;
             CHK_FitToWidth.IsChecked = fitToWidth;
             CHK_ShowStatusBar.IsChecked = showStatusBar;
             CHK_AutoRefresh.IsChecked = autoRefreshOnFolderChange;
+            CHK_OpenOnDblClick.IsChecked = openOnDoubleClick;
 
             SL_MaxSize.Value = Math.Max(10, Math.Min(200, maxSizePercent));
             TB_MaxSize.Text = ((int)SL_MaxSize.Value).ToString() + " %";
@@ -140,6 +144,7 @@ namespace ImageViewer
             NewFitToWidth = CHK_FitToWidth.IsChecked ?? false;
             NewShowStatusBar = CHK_ShowStatusBar.IsChecked ?? false;
             NewAutoRefreshOnFolderChange = CHK_AutoRefresh.IsChecked ?? false;
+            NewOpenOnDoubleClick = CHK_OpenOnDblClick.IsChecked ?? false;
             NewMaxImageSizePercent = (int)SL_MaxSize.Value;
             NewDefaultScale = scale;
             NewFitToWidthMinImageWidth = (int)SL_MinFitPx.Value;
