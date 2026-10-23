@@ -1051,7 +1051,7 @@ namespace ImageViewer
             // Failsafe: stale layout right after resize/scale could compute target ==
             // current; fall back to plain line scrolling for THIS tick so the wheel can
             // never feel dead (next tick retries once MeasureOverride has re-run).
-            if (Math.Abs(sv.VerticalOffset - svTarget) < 0.5 && Math.abs(target - offsetOfEntry) >= 0.5)
+            if (Math.Abs(sv.VerticalOffset - svTarget) < 0.5 && Math.Abs(target - offsetOfEntry) >= 0.5)
             {
                 if (down) sv.LineDown();
                 else sv.LineUp();
