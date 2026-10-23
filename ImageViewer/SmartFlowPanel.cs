@@ -59,6 +59,84 @@ namespace ImageViewer
 		public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArrange = true; InvalidateMeasure(); InvalidateVisual(); } bool _invalidatedMeasure = true; bool _invalidatedArrange = true;
 
 
+	// --- Row lookup for "scroll by image" ------------------------
+	// ElementLocations holds one entry per laid-out element keyed by its
+	// row's Y, so these are O(log n) tree descents - no traversal, no
+	// visual-tree walking, nothing that disturbs lazy loading.
+
+	/// <summary>
+	/// The topmost row whose TOP edge is at or below y (the next row that
+	/// can be brought to the viewport top). Null when none exists.
+	/// </summary>
+	public Rect? GetFirstRowBelow(double y)
+	{
+		var node = ElementLocations.FindNode(y, ElementLocations.Root);
+		if (node == null) return null;   // empty tree
+
+		int c = ElementLocations.ItemKey(node.Value).CompareTo(y);
+		if (c >= 0)
+		{
+			// Node starts at/after y: the leftmost descendant is the smallest such key.
+			while (node.Left != null) node = node.Left;
+		} else
+		{
+			// Node starts above y; the answer is the smallest key in its right subtree.
+			node = MinSubNodePublic(node.Right);
+		}
+		if (node == null) return null;
+		return FirstRectOf(node);
+	}
+
+	/// <summary>
+	/// The bottom-most row whose TOP edge is strictly above y (the row
+	/// currently cut off at the viewport top, or just before it).
+	/// Null when none exists.
+	/// </summary>
+	public Rect? GetLastRowAbove(double y)
+	{
+		var node = ElementLocations.FindNode(y, ElementLocations.Root);
+		if (node == null) return null;   // empty tree
+
+		int c = ElementLocations.ItemKey(node.Value).CompareTo(y);
+		if (c < 0)
+		{
+			// This node qualifies; keep going right for a larger (lower) key.
+			while (node.Right != null) node = node.Right;
+		} else
+		{
+			// Node starts at/after y; the answer is the largest key in its left subtree.
+			node = MaxSubNodePublic(node.Left);
+		}
+		if (node == null) return null;
+		return FirstRectOf(node);
+	}
+
+	static TreeCollection.INode<Tuple<Rect, UIElement>> MinSubNodePublic(TreeCollection.INode<Tuple<Rect, UIElement>> node)
+	{
+		if (node == null) return null;
+		while (node.Left != null) node = node.Left;
+		return node;
+	}
+
+	static TreeCollection.INode<Tuple<Rect, UIElement>> MaxSubNodePublic(TreeCollection.INode<Tuple<Rect, UIElement>> node)
+	{
+		if (node == null) return null;
+		while (node.Right != null) node = node.Right;
+		return node;
+	}
+
+	// A tree node groups all elements of one row (same Y key); the shared
+	// rect dimensions live on every entry, so any one suffices.
+	static Rect? FirstRectOf(TreeCollection.INode<Tuple<Rect, UIElement>> node)
+	{
+		var v = node.Value;
+		if (v != null) return v.Item1;
+		var list = node.Values;
+		if (list != null) { foreach (var t in list) return t.Item1; }
+		return null;
+	}
+
+
         ScrollViewer ScrollOwner { get { return _scrollOwner; } set { scrollOwnerChanged(value); _scrollOwner = value; } } ScrollViewer _scrollOwner;
 
 		void scrollOwnerChanged(ScrollViewer newScrollOwner)
