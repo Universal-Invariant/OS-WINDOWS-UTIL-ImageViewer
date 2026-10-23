@@ -75,10 +75,6 @@ namespace ImageViewer
 	/// The row with the SMALLEST Y that is >= y. Returns default(Rect) (IsEmpty)
 	/// when none exists; callers guard with HasRows.
 	/// </summary>
-	/// <summary>
-	/// The row with the SMALLEST Y that is >= y. Returns default(Rect) (IsEmpty)
-	/// when none exists; callers guard with HasRows.
-	/// </summary>
 	public Rect GetFirstRowBelow(double y)
 	{
 		var rows = GetDistinctRows();
