@@ -32,3 +32,5 @@ A very simple ImageViewer that can display images recursively and scale them. Th
 ## Building
 
 Requires Visual Studio 2019+ (or MSBuild) with the .NET Framework desktop workload. Open `ImageViewer.sln` and build the `ImageViewer` project (WPF, x86/x64 Any CPU).
+
+- **Folder change detection** — a `FileSystemWatcher` monitors the current folder (honoring the recursion toggle); when images are added/removed/renamed on disk a refresh button appears and turns red. Clicking it reloads the folder. An optional setting (gear dialog → "Auto-reload when files are added/removed") makes the viewer reload automatically after a 1.5 s quiet period instead of waiting for the click.
