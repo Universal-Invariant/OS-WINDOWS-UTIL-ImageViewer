@@ -128,6 +128,20 @@ namespace ImageViewer
 	/// <summary>True when at least one laid-out row exists.</summary>
 	public bool HasRows { get { return ElementLocations.Count > 0; } }
 
+	/// <summary>
+	/// Height of the row occupying viewport position yTop (the row whose TOP edge
+	/// is the last one at or just above yTop). Used by "scroll by image" to clamp
+	/// each step to at most one viewport height, so a row taller than the window
+	/// (fit-to-width book pages) still scrolls in visible chunks instead of
+	/// jumping its full height off-screen. Returns 0 when no such row exists.
+	/// </summary>
+	public double GetRowHeightAt(double yTop)
+	{
+		var r = GetLastRowAbove(yTop + 1.0);   // row starting at/just above yTop
+		if (r.IsEmpty && r.Height <= 0) return 0;
+		return r.Height;
+	}
+
 
         ScrollViewer ScrollOwner { get { return _scrollOwner; } set { scrollOwnerChanged(value); _scrollOwner = value; } } ScrollViewer _scrollOwner;
 
