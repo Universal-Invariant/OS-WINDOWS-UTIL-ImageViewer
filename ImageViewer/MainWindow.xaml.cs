@@ -912,6 +912,15 @@ namespace ImageViewer
                         target = offset - pageStep;                // oversized row, still inside it: page up one (undershot) step
                     else
                         target = cur.Y;                            // ordinary sliver -> snap back to this row's top
+                    // Multi-notch events: repeat the single-notch step.
+                    for (int i = 1; i < notches && target > cur.Y; i++)
+                    {
+                        double t = target;
+                        if (cur.Height > vpH + eps && t - pageStep >= cur.Y + eps)
+                            target = t - pageStep;
+                        else
+                            target = cur.Y;
+                    }
                 }
                 else
                 {
@@ -923,9 +932,8 @@ namespace ImageViewer
                     if (prev.IsEmpty && prev.Height <= 0)
                         target = 0;                                // nothing above -> top
                     else if (prev.Height > vpH + eps)
-                        target = Math.Max(0.0, prev.Bottom - pageStep * notches);
+                        target = Math.Max(0.0, prev.Bottom - pageStep);
                     else
-                    {
                         target = prev.Y;
                 }
             }
@@ -971,6 +979,11 @@ namespace ImageViewer
                 case Key.PageUp: ScrollToRowStep(-perNotch); break;
                 case Key.Home: sv.ScrollToVerticalOffset(0); break;
                 case Key.End: sv.ScrollToVerticalOffset(sv.ScrollableHeight); break;
+                case Key.F:
+                    // Book-view convenience: toggle fit-to-width without reaching
+                    // for the mouse while paging through scans/comics.
+                    TGB_FitToWidth.IsChecked = !(TGB_FitToWidth.IsChecked ?? false);
+                    break;
                 default: return;                                  // let other keys bubble on
             }
             e.Handled = true;
