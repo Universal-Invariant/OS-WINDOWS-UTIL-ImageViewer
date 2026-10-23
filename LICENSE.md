@@ -1,5 +1,5 @@
 ### **Human Dignity Software License (HDSL) — v1.0**  
-**Copyright (C) 2025 Universal Invariant**
+**Copyright (C) 2026 Universal Invariant**
 
 This software is not free software in the sense defined by the Free Software Foundation.  
 It is released under the Human Dignity Software License (HDSL), which grants permission to use, study, modify, and share this software only to those who uphold fundamental human dignity and reject systems of domination, occupation, and dehumanization.
@@ -131,7 +131,7 @@ If a court of competent jurisdiction issues a final, non-appealable judgment fin
 
 Any attempt to manipulate, conceal, falsify, or otherwise undermine the restitution process—including but not limited to:  
 - fabricating recipients (e.g., using actors, associates, or non-unhoused individuals as “homeless” beneficiaries),  
-- channeling funds through shell charities, fake mutual aid groups, or entities controlled by the violator,  
+- channeling funds through shell charities, fake mutual aid groups, or entities controlled directly or indirectly by the violator,  
 - submitting forged, altered, or misleading documentation,  
 - omitting material information to evade public scrutiny,  
 

@@ -32,7 +32,7 @@ namespace ImageViewer
 
 
 
-        string fileTypes = "*.jpg; *.png; *.bmp; *.ico; *.gif";
+        string fileTypes = "*.jpg; *.jpeg; *.jpe; *.jif; *.jfif; *.jfi; *.png; *.bmp; *.ico; *.gif; *.tiff";
         BackgroundWorker currentRecurser = null;
         
 
