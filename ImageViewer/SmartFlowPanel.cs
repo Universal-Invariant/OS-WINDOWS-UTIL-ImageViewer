@@ -179,6 +179,30 @@ namespace ImageViewer
 	public bool HasRows { get { return ElementLocations.Count > 0; } }
 
 	/// <summary>
+	/// Hit-test: the file path of the image whose laid-out rectangle contains
+	/// the given point (in this panel's coordinate space), or null when the
+	/// point misses every image. Walks the cached element locations directly -
+	/// no visual-tree traversal - so it is cheap enough for a double-click.
+	/// Duplicate-Y rows are covered because node.Value AND node.Values are both
+	/// visited, same as the row-cache rebuild.
+	/// </summary>
+	public string GetImagePathAtPoint(Point p)
+	{
+		string found = null;
+		VisitAll(ElementLocations.Root, delegate(Tuple<Rect, UIElement> t)
+		{
+			if (found != null) return;
+			var r = t.Item1;
+			if (r.Contains(p))
+			{
+				var img = GetImage(t.Item2);
+				if (img != null && !string.IsNullOrEmpty(img.Path)) found = img.Path;
+			}
+		});
+		return found;
+	}
+
+	/// <summary>
 	/// Height of the row occupying viewport position yTop (the row whose TOP edge
 	/// is the last one at or just above yTop). Used by "scroll by image" to clamp
 	/// each step to at most one viewport height, so a row taller than the window
