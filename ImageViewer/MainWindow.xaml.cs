@@ -1,4 +1,4 @@
-﻿using ImageViewer.Properties;
+using ImageViewer.Properties;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -688,39 +688,37 @@ namespace ImageViewer
             if (panel == null || e.Delta == 0) return;
 
             var sv = GetScrollViewer();
-            if (sv == null || sv.ScrollableHeight <= 0) { e.Handled = true; return; }
+            if (sv == null) return;
+            if (sv.ScrollableHeight <= 0) { e.Handled = true; return; }   // nothing to scroll at all
 
             double offset = sv.VerticalOffset;
-            const double eps = 1.5;                                // sub-pixel slop for layout rounding
+            const double eps = 2.0;                                // slop for layout rounding
             bool down = e.Delta < 0;
 
+            // Snap-to-row logic: if the viewport top is cut through the middle of
+            // a row (from a previous partial/pixel scroll or a resize), the first
+            // notch only snaps that sliver away so the next whole row sits at the
+            // very top; when already aligned, each notch moves exactly one row.
             double target;
             if (down)
             {
-                // Top-most row whose content still hangs below the viewport top.
-                var r = panel.GetFirstRowBelow(offset + eps);
-                if (!panel.HasRows || r.IsEmpty) target = sv.ScrollableHeight;   // already at the bottom
+                var r = panel.GetFirstRowBelow(offset + eps);      // first row starting below the top edge
+                if (!panel.HasRows || r.IsEmpty)
+                    target = sv.ScrollableHeight;                  // no rows below -> bottom
                 else
-                {
-                    double rowBottom = r.Y + r.Height;
-                    if (rowBottom > offset + r.Height * 0.25)
-                        target = rowBottom - sv.ViewportHeight;    // partial row -> bring its bottom edge to the viewport top
-                    else
-                        target = r.Y;                              // aligned -> show the next row at the top
-                }
+                    target = r.Y;                                  // snap that row to the viewport top
             }
             else
             {
-                // Last row that starts above the current top edge.
-                var r = panel.GetLastRowAbove(offset - eps);
-                if (!panel.HasRows || (r.IsEmpty && !(r.Y == 0 && r.Height > 0))) target = 0;   // already at the very top
+                var cur = panel.GetLastRowAbove(offset + eps);     // row occupying the viewport top
+                if (!panel.HasRows || (cur.IsEmpty && cur.Height <= 0))
+                    target = 0;                                    // nothing above -> top
+                else if (offset - cur.Y > eps)
+                    target = cur.Y;                                // mid-row sliver -> snap back to this row's top
                 else
                 {
-                    double rowBottom = r.Y + r.Height;
-                    if (offset - r.Y < r.Height * 0.75 && offset - r.Y > eps)
-                        target = r.Y;                               // showing the tail of this row -> snap back to its top
-                    else
-                        target = rowBottom - sv.ViewportHeight;     // aligned -> reveal the previous row's tail
+                    var prev = panel.GetLastRowAbove(cur.Y - eps); // aligned -> jump to the previous row
+                    target = (prev.IsEmpty && prev.Height <= 0) ? 0 : prev.Y;
                 }
             }
 
@@ -729,7 +727,20 @@ namespace ImageViewer
             if (target > sv.ScrollableHeight) target = sv.ScrollableHeight;
 
             sv.ScrollToVerticalOffset(target);
-            e.Handled = true;                                       // suppress default line scrolling
+
+            // Failsafe: if our row math produced no movement (e.g. stale layout
+            // data right after a resize/scale change while MeasureOverride hasn't
+            // re-run yet), fall back to plain line scrolling for THIS tick so the
+            // wheel can never feel dead. Next tick retries the snap (this also
+            // covers legacy WPF keyboard scrolling, which is line-based and was
+            // what made the arrow keys feel "half off").
+            if (Math.Abs(sv.VerticalOffset - offset) < 0.5)
+            {
+                if (down) sv.LineDown();
+                else sv.LineUp();
+            }
+
+            e.Handled = true;                                      // suppress default 3-lines-per-tick scrolling
         }
 
         ScrollViewer _svCache;

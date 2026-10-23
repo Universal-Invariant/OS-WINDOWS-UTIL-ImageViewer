@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -60,34 +60,30 @@ namespace ImageViewer
 
 
 	// --- Row lookup for "scroll by image" ------------------------
-	// ElementLocations holds one entry per laid-out element keyed by its
-	// row's Y, so these are O(log n) tree descents - no traversal, no
-	// visual-tree walking, nothing that disturbs lazy loading.
+	// ElementLocations holds one entry per laid-out element keyed by its row's Y.
+	// These lookups walk the AVL tree directly (Root/Left/Right). We deliberately
+	// do NOT use the bounded enumerator (Traversal.Traverse + EnumeratorRange):
+	// its range filter silently skips nodes that hold qualifying children - with
+	// an open-ended half-line interval the root itself fails the range test and
+	// whole subtrees never get visited - which made both lookups return empty
+	// results, so every wheel tick computed target == current offset and
+	// scrolling appeared completely dead. The walks below visit every entry per
+	// Y-key (node.Value AND node.Values, since duplicate-Y rows are collected
+	// into the node's value list) and touch nothing related to lazy loading.
 
 	/// <summary>
-	/// Row lookup for "scroll by image". We deliberately avoid FindNode/INode
-	/// (not accessible on this AVLTree instantiation) and instead use a bounded
-	/// enumerator: an "In" traversal over a half-line KeyInterval yields entries
-	/// in ascending Y order, so we take the first/last qualifying rect.
-	/// O(log n) descent + scan of one row - no full traversal, nothing that
-	/// disturbs lazy loading.
+	/// The row with the SMALLEST Y that is >= y. Returns default(Rect) (IsEmpty)
+	/// when none exists; callers guard with HasRows.
 	/// </summary>
 	public Rect GetFirstRowBelow(double y)
 	{
-		ElementLocations.EnumeratorRange = new TreeCollection.KeyInterval<double>(y, double.PositiveInfinity);
-		ElementLocations.Traversal.TraversalMethod = TreeCollection.TraversalEnumeratorMethod.In;
-		ElementLocations.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Normal;
-		// Collect ALL rows in range (not just the first element of each node):
-		// multiple rows can share a Y key and/or live in node.Values. The
-		// enumerator is bounded to [y, +inf), so this scans only rows below y.
-		Rect? result = null;
-		// NOTE: the enumerator Traverse() overload wants Func<TValue,bool>;
-		// returning true keeps the bounded traversal going to completion.
-		Func<Tuple<Rect, UIElement>, bool> consider =
-			(t) => { if (t.Item1.Y >= y && (result == null || t.Item1.Y < result.Value.Y)) result = t.Item1; return true; };
-		ElementLocations.Traversal.Traverse(consider);
-		ElementLocations.EnumeratorRange = null;
-		return result ?? default(Rect);
+		Rect? best = null;
+		VisitAll(ElementLocations.Root, delegate(Tuple<Rect, UIElement> t)
+		{
+			var r = t.Item1;
+			if (r.Y >= y && (best == null || r.Y < best.Value.Y)) best = r;
+		});
+		return best ?? default(Rect);
 	}
 
 	/// <summary>
@@ -97,17 +93,36 @@ namespace ImageViewer
 	/// </summary>
 	public Rect GetLastRowAbove(double y)
 	{
-		ElementLocations.EnumeratorRange = new TreeCollection.KeyInterval<double>(double.NegativeInfinity, y);
-		ElementLocations.Traversal.TraversalMethod = TreeCollection.TraversalEnumeratorMethod.In;
-		ElementLocations.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Normal;
-		// Enumerator bounded to (-inf, y]; keep the LARGEST Y strictly below y.
-		Rect result = default(Rect);
-		bool found = false;
-		Func<Tuple<Rect, UIElement>, bool> consider =
-			(t) => { if (t.Item1.Y < y && (!found || t.Item1.Y >= result.Y)) { result = t.Item1; found = true; } return true; };
-		ElementLocations.Traversal.Traverse(consider);
-		ElementLocations.EnumeratorRange = null;
-		return found ? result : default(Rect);
+		Rect? best = null;
+		VisitAll(ElementLocations.Root, delegate(Tuple<Rect, UIElement> t)
+		{
+			var r = t.Item1;
+			if (r.Y < y && (best == null || r.Y > best.Value.Y)) best = r;
+		});
+		return best ?? default(Rect);
+	}
+
+	// Iterative (stack-based) pre-order walk of the whole AVL tree invoking act
+	// for EVERY laid-out element - both node.Value and any duplicates in
+	// node.Values. No recursion (trees can be deep), no allocations in the
+	// steady state (the stack field is reused). O(n) worst case but n is the
+	// number of laid-out elements and this runs only once per wheel tick.
+	readonly Stack<TreeCollection.INode<Tuple<Rect, UIElement>>> _rowWalkStack
+		= new Stack<TreeCollection.INode<Tuple<Rect, UIElement>>>();
+
+	void VisitAll(TreeCollection.INode<Tuple<Rect, UIElement>> root, Action<Tuple<Rect, UIElement>> act)
+	{
+		_rowWalkStack.Clear();
+		if (root != null) _rowWalkStack.Push(root);
+		while (_rowWalkStack.Count > 0)
+		{
+			var n = _rowWalkStack.Pop();
+			act(n.Value);
+			if (n.Values != null)
+				foreach (var v in n.Values) act(v);
+			if (n.Left != null) _rowWalkStack.Push(n.Left);
+			if (n.Right != null) _rowWalkStack.Push(n.Right);
+		}
 	}
 
 	/// <summary>True when at least one laid-out row exists.</summary>
