@@ -695,7 +695,19 @@ namespace ImageViewer
             if (sv == null) return;
             if (sv.ScrollableHeight <= 0) { e.Handled = true; return; }   // nothing to scroll at all
 
+            // NOTE: row rectangles in SmartFlowPanel.ElementLocations are stored in the
+            // panel's OWN coordinate space (MeasureOverride receives an infinite extent,
+            // so each child is measured with a fresh Rect(0,0,...) origin and arranged
+            // relative to that). The ScrollViewer's VerticalOffset, however, includes any
+            // fixed chrome ABOVE the panel inside the scroll content (e.g. the ListView
+            // header row - ~20px), which is why every snap was consistently short by that
+            // amount. Derive the panel-space offset once from the panel's actual rendered
+            // position (TransformToVisual is authoritative and self-correcting: it returns
+            // -VerticalOffset + chrome automatically) and convert back for scrolling.
             double offset = sv.VerticalOffset;
+            GeneralTransform gt = panel.TransformToVisual(sv);
+            if (gt != null)
+                offset = -gt.Transform(new Point(0, 0)).Y;         // panel-space y at viewport top
             const double eps = 2.0;                                // slop for layout rounding
             bool down = e.Delta < 0;
             double vpH = Math.Max(1.0, sv.ViewportHeight);         // app-window usable height
@@ -705,28 +717,34 @@ namespace ImageViewer
             // notch only snaps that sliver away so the next whole row sits at the
             // very top; when already aligned, each notch moves exactly one row -
             // clamped to one viewport height for oversized rows (paged scroll).
+            // IMPORTANT: `offset` here is in PANEL coordinate space (see note above);
+            // every target computed below is also panel-space and gets converted back
+            // to ScrollViewer offset space via chromeOffset at the ScrollTo call.
+            double chromeOffset = sv.VerticalOffset - offset;      // fixed chrome above panel inside scroll content
             double target;
             if (down)
             {
                 var cur = panel.GetLastRowAbove(offset + eps);     // row occupying the viewport top
-                bool aligned = !cur.IsEmpty && cur.Height > 0 && offset - cur.Y <= eps;
-                bool rowOversized = cur.Height > vpH + eps;
+                bool hasCur = !cur.IsEmpty || cur.Height > 0;
+                bool rowOversized = hasCur && cur.Height > vpH + eps;
 
                 if (!panel.HasRows)
-                    target = sv.ScrollableHeight;                  // no layout data -> bottom
-                else if (aligned && rowOversized && offset + vpH < cur.Bottom - eps)
+                    target = offset + sv.ScrollableHeight;         // no layout data -> bottom (panel-space approx)
+                else if (rowOversized && offset + vpH < cur.Bottom - eps)
                 {
-                    // Tall row still extends below the viewport: page down one
-                    // viewport height, but never past the row's bottom edge -
-                    // landing exactly there makes the next notch snap cleanly to
-                    // the following row's top.
+                    // Tall row still extends below the viewport (whether we are
+                    // aligned at its top or mid-way through it): page down exactly
+                    // one viewport height, but never past the row's bottom edge -
+                    // landing exactly there makes the NEXT notch snap cleanly to the
+                    // following row's top. This is what lets a 1000x1000000 image be
+                    // scrolled screen-by-screen instead of jumping over it entirely.
                     target = Math.Min(offset + vpH, cur.Bottom);
                 }
                 else
                 {
                     var r = panel.GetFirstRowBelow(offset + eps);  // first row starting below the top edge
                     if (r.IsEmpty && r.Height <= 0)
-                        target = sv.ScrollableHeight;              // no rows below -> bottom
+                        target = offset + sv.ScrollableHeight;     // no rows below -> bottom
                     else
                         target = r.Y;                              // snap that row to the viewport top
                 }
@@ -734,7 +752,8 @@ namespace ImageViewer
             else
             {
                 var cur = panel.GetLastRowAbove(offset + eps);     // row occupying the viewport top
-                if (!panel.HasRows || (cur.IsEmpty && cur.Height <= 0))
+                bool hasCur = !cur.IsEmpty || cur.Height > 0;
+                if (!panel.HasRows || !hasCur)
                     target = 0;                                    // nothing above -> top
                 else if (offset - cur.Y > eps)
                 {
@@ -760,11 +779,13 @@ namespace ImageViewer
                 }
             }
 
-            // Clamp: never past the ends, never negative.
-            if (target < 0) target = 0;
-            if (target > sv.ScrollableHeight) target = sv.ScrollableHeight;
+            // Convert panel-space target back to ScrollViewer offset space and clamp:
+            // never past the ends, never negative.
+            double svTarget = target + chromeOffset;
+            if (svTarget < 0) svTarget = 0;
+            if (svTarget > sv.ScrollableHeight) svTarget = sv.ScrollableHeight;
 
-            sv.ScrollToVerticalOffset(target);
+            sv.ScrollToVerticalOffset(svTarget);
 
             // Failsafe: if our row math produced no movement (e.g. stale layout
             // data right after a resize/scale change while MeasureOverride hasn't
