@@ -94,7 +94,13 @@ namespace ImageViewer
             double w = _originalWidth;
             double h = _originalHeight;
 
-            bool fits = targetWidth > 0 && (_originalWidth * 96.0 >= minWidthInPixels || _originalHeight * 96.0 >= minWidthInPixels);
+            // Threshold is expressed in ORIGINAL PIXELS; _originalWidth/_originalHeight
+            // are device-independent units (96 dpi), so convert px -> DIU by dividing.
+            // (The old multiplication made the threshold ~9216 DIU, so effectively NO
+            // image was ever excluded - every image got stretched to window width and
+            // a single tall page could exceed the viewport, causing the book-view
+            // scroll glitches.)
+            bool fits = targetWidth > 0 && (_originalWidth >= minWidthInPixels / 96.0 || _originalHeight >= minWidthInPixels / 96.0);
             if (fits)
             {
                 // Book format: derive the scale directly from the current
@@ -121,14 +127,23 @@ namespace ImageViewer
             // are skipped entirely, preserving the snappy lazy behavior.
             // NOTE: Image.Width/Height are plain doubles (NOT Nullable), so
             // "unset" shows up as NaN rather than HasValue == false.
+            // Compare against the CURRENT DesiredSize as well as the explicit
+            // Width/Height: after a chrome-strip style change, an old row's
+            // DesiredSize can still include ~20px of ListViewItem padding even
+            // though Width/Height are already correct. If we skipped the dirty
+            // in that case, SmartFlowPanel would lay the row out with the stale
+            // (padded) DesiredSize and every image would overlap by ~20px.
             bool sizeChanged = double.IsNaN(this.Width) || double.IsNaN(this.Height) ||
                                Math.Abs(this.Width - newW) >= 0.01 ||
-                               Math.Abs(this.Height - newH) >= 0.01;
+                               Math.Abs(this.Height - newH) >= 0.01 ||
+                               (!double.IsNaN(DesiredSize.Width) && Math.Abs(DesiredSize.Width - newW) >= 0.01) ||
+                               (!double.IsNaN(DesiredSize.Height) && Math.Abs(DesiredSize.Height - newH) >= 0.01);
             if (sizeChanged)
             {
                 this.Width = newW;
                 this.Height = newH;
                 InvalidateMeasure();
+                InvalidateVisual();   // re-render the bitmap at the new extent
             }
         }
 

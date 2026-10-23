@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -311,12 +311,17 @@ namespace ImageViewer
 			    !availableSize.Height.Equals(_lastAvailableSize.Height))
 			{
 				_lastAvailableSize = availableSize;
+				// ALWAYS force a full relayout when the viewport changes, even
+				// when fit-to-width is OFF: previously relayout was only set inside
+				// the FitToWidthActive() branch, so toggling book view off (or any
+				// size change with book view disabled) returned the cached MeasureSize
+				// and left rows laid out for window-width pages -> massive overlaps.
+				relayout = true;
 				if (FitToWidthActive())
 				{
 					var target = UsableFitWidth(availableSize);
 					if (target > 0)
 					{
-						relayout = true;
 						foreach (UIElement child in InternalChildren)
 						{
 							var img = GetImage(child);
@@ -363,7 +368,15 @@ namespace ImageViewer
 					var img = GetImage(child);
 					if (img != null)
 					{
-						img.Measure(infiniteSize);   // force the image itself to re-measure at its new explicit size
+						// Re-measure the image ONLY when its explicit size and its
+						// DesiredSize disagree. Measuring unconditionally was a
+						// regression: Image.MeasureOverride re-decodes/refreshes the
+						// bitmap source, so doing it for every child on every measure
+						// pass froze large folders ("book view broke") and burned CPU
+						// against our laziness goal.
+						if (!img.Width.Equals(img.DesiredSize.Width) ||
+						    !img.Height.Equals(img.DesiredSize.Height))
+							img.Measure(infiniteSize);
 						if (!child.DesiredSize.Width.Equals(img.DesiredSize.Width) ||
 						    !child.DesiredSize.Height.Equals(img.DesiredSize.Height))
 							child.Measure(infiniteSize);

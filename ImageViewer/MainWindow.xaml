@@ -240,7 +240,7 @@
              version where XAML attached-property syntax outside a target element
              (ListView.ItemContainerStyle here, after the toolbar Grid) fails to
              compile with MC3015. -->
-        <ListView Name="LV" Background="AliceBlue" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" SelectionMode="Multiple" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <ListView Name="LV" Background="AliceBlue" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="False" SelectionMode="Multiple" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
             <ListView.ItemsPanel>
                 <ItemsPanelTemplate>
                     <ImageViewer:SmartFlowPanel/>
