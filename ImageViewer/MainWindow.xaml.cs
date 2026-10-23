@@ -84,6 +84,10 @@ namespace ImageViewer
     /// </summary>
     public partial class MainWindow : Window
     {
+        // Single-instance handle so the custom layout panel (SmartFlowPanel)
+        // can query the current toolbar/layout settings during measure.
+        public static MainWindow Current { get; private set; }
+
         private const int MaxRecentPaths = 10;
 
         // "Fit to width" (book format) mode: every image is scaled so its
@@ -104,6 +108,8 @@ namespace ImageViewer
         public MainWindow()
         {
             InitializeComponent();
+
+            Current = this;
 
             // Initialize events after settings are loaded
             SD_Scale.ValueChanged += SD_Scale_ValueChanged;
@@ -469,11 +475,16 @@ namespace ImageViewer
             return h > 10 ? h : ActualHeight;
         }
 
+        // Whether the "fit images to window width" (book format) toggle is on.
+        // Read by SmartFlowPanel during measure to keep image sizes in sync
+        // with the real viewport width.
+        public bool IsFitToWidthEnabled { get { return TGB_FitToWidth != null && (TGB_FitToWidth.IsChecked ?? false); } }
+
         // Fit-to-width ("book format"): scale every image so its width equals
         // the window width. Returns 0 to mean "not in fit-to-width mode".
         double ComputeFitToWidthScale()
         {
-            if (!(TGB_FitToWidth.IsChecked ?? false)) return 0;
+            if (!IsFitToWidthEnabled) return 0;
             var w = GetLayoutWidth();
             if (w < 10) return 0;
             return w * FitToWidthFactor;

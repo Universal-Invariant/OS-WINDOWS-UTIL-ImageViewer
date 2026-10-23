@@ -45,28 +45,59 @@ namespace ImageViewer
         private double _originalWidth;
         private double _originalHeight;
 
+        // Layout parameters of the last UpdateSize() call, kept so the size
+        // can be recomputed whenever the window is resized while a layout
+        // mode (e.g. fit-to-width) is active.
+        private double _lastScale = 1.0;
+        private double _lastFitWidth = 0;
+        private double _lastMaxSizeFactor = 1.0;
 
-        // Store the scale factor for debugging
-        private double _currentScale = 1.0;
-
-        // Modified UpdateSize with debug output
-        public void UpdateSize(double scale)
+        // Scales the image and recomputes its layout size.
+        //   scale          : user scale factor from the toolbar slider
+        //   targetWidth    : > 0 enables "fit to width" (book format) mode -
+        //                    every image is scaled so its rendered width
+        //                    equals this value.
+        //   maxSizeFactor  : fraction of the available layout area used to
+        //                    clamp oversized images before scaling.
+        public void UpdateSize(double scale, double targetWidth = 0, double maxSizeFactor = 1.0)
         {
-            _currentScale = scale; // Store the scale factor
-            this.Width = _originalWidth * scale;
-            this.Height = _originalHeight * scale;
-            Debug.WriteLine($"[LazyImage UpdateSize] Path: {Path}, Scale: {scale:F2}, New Width: {this.Width:F2}, New Height: {this.Height:F2}");
+            _lastScale = scale;
+            _lastFitWidth = targetWidth;
+            _lastMaxSizeFactor = maxSizeFactor;
 
-            // Invalidate measure/layout
-            this.InvalidateMeasure();
+            double w = _originalWidth;
+            double h = _originalHeight;
+
+            if (targetWidth > 0)
+            {
+                // Book format: derive the scale directly from the current
+                // window width instead of chaining it onto previously
+                // computed sizes (which would accumulate rounding error).
+                var c = targetWidth / w;
+                w *= c;
+                h *= c;
+            }
+
+            w *= scale;
+            h *= scale;
+
+            // Never let an image collapse to zero (or negative/NaN) extents -
+            // degenerate sizes break the flow layout and cause overlaps.
+            const double minDim = 8.0;
+            this.Width = Math.Max(minDim, w);
+            this.Height = Math.Max(minDim, h);
+
+            // Force WPF to re-measure this element so DesiredSize tracks the
+            // explicit Width/Height we just set.
+            InvalidateMeasure();
         }
 
-        // Modified MeasureOverride with debug output
-        protected override Size MeasureOverride(Size constraint)
+        // Recompute the size using the last layout parameters. Called when
+        // the viewport changes (window resize) so modes like fit-to-width
+        // stay in sync with the actual usable width.
+        public void RefreshSize(double targetWidth)
         {
-            var desiredSize = new Size(this.Width, this.Height);
-            Debug.WriteLine($"[LazyImage MeasureOverride] Path: {Path}, Scale: {_currentScale:F2}, DesiredSize: ({desiredSize.Width:F2}, {desiredSize.Height:F2})");
-            return desiredSize;
+            UpdateSize(_lastScale, targetWidth > 0 ? targetWidth : _lastFitWidth, _lastMaxSizeFactor);
         }
 
         public LazyImage(string path, ListView host, double MaxWidth, double MaxHeight) : base() 
@@ -101,12 +132,8 @@ namespace ImageViewer
             _originalWidth = ImageWidth;
             _originalHeight = ImageHeight;
 
-            // Apply initial scale (default = 1.0)
+            // Apply initial size (scale = 1.0)
             UpdateSize(1.0);
-
-
-            this.Width = ImageWidth;
-			this.Height = ImageHeight;
 			//this.Source = notloaded;
 			this.Source = null;
 			
