@@ -273,6 +273,10 @@ namespace ImageViewer
 
         private void LoadSettings()
         {
+            // Restore the window position/size/state saved at last exit
+            // (must run before any layout is triggered by the settings below).
+            RestoreWindowState();
+
             // Load background color.
             // (The stored default value contains literal quotes - strip them.)
             var bgString = (Settings.Default.BackgroundColorARGB ?? "").Trim('"');
@@ -323,6 +327,86 @@ namespace ImageViewer
             // already populated oldPath so this assignment won't skip a reload.)
             if (!string.IsNullOrEmpty(Settings.Default.LastUsedPath))
                 CB_Path.Text = Settings.Default.LastUsedPath;
+        }
+
+        // ---- Window geometry persistence -------------------------------------
+        // "Set it and forget it": the window remembers where it was (and whether
+        // it was maximized) between runs. Handy on multi-monitor setups, e.g.
+        // keeping this app docked to a side monitor while Visual Studio owns
+        // the center one - no OS/IDE setting can do that for you.
+        private void RestoreWindowState()
+        {
+            try
+            {
+                double left = Settings.Default.WindowLeft;
+                double top = Settings.Default.WindowTop;
+                double width = Settings.Default.WindowWidth;
+                double height = Settings.Default.WindowHeight;
+
+                // NaN means "never saved yet" - keep the XAML defaults.
+                if (!double.IsNaN(left) && !double.IsNaN(top) &&
+                    !double.IsNaN(width) && !double.IsNaN(height) &&
+                    width >= 100 && height >= 50)
+                {
+                    // Only apply if some part of the remembered rectangle is
+                    // still visible: monitors come and go (docking stations,
+                    // projectors), and a window at Left=3200 on a single-screen
+                    // setup would be unreachable. If nothing intersects, we
+                    // fall back to the OS default position instead.
+                    var rc = new Rect(left, top, width, height);
+                    if (IsRectOnSomeScreen(rc))
+                    {
+                        WindowStartupLocation = WindowStartupLocation.Manual;
+                        Left = left; Top = top; Width = width; Height = height;
+                    }
+                }
+
+                // 0 = Normal, 1 = Maximized, 2 = Minimized (never restore minimized).
+                if (Settings.Default.WindowState == (int)System.Windows.WindowState.Maximized)
+                    WindowState = System.Windows.WindowState.Maximized;
+            }
+            catch (Exception ex)
+            {
+                // Geometry restore must never crash startup; log and continue.
+                Console.WriteLine("Error restoring window state: " + ex.Message);
+            }
+        }
+
+        // Conservative on-screen check: the remembered rectangle (WPF DIPs)
+        // must intersect at least one monitor's working area. We compare in
+        // virtual-desktop coordinates and then clamp with a generous margin,
+        // which is DPI-approximate but sufficient to catch the common failure
+        // mode - a window remembered on a monitor that has since been
+        // unplugged (e.g. Left=3200 on a single 1920px screen).
+        private static bool IsRectOnSomeScreen(Rect r)
+        {
+            var vd = WinForms.SystemInformation.VirtualScreen;
+            const int margin = 500; // tolerate DPI scaling differences
+            return r.Right > vd.Left - margin && r.Left < vd.Right + margin &&
+                   r.Bottom > vd.Top - margin && r.Top < vd.Bottom + margin;
+        }
+
+        private void SaveWindowState()
+        {
+            try
+            {
+                // While maximized (or minimized), Left/Top/Width/Height report
+                // the *current* (screen-filling) bounds. RestoreBounds gives
+                // the normal-state rectangle we want to return to next run.
+                var b = WindowState == System.Windows.WindowState.Normal
+                        ? new Rect(Left, Top, Width, Height) : RestoreBounds;
+                if (b.Width < 100 || b.Height < 50) return; // ignore degenerate rects
+
+                Settings.Default.WindowLeft = b.X;
+                Settings.Default.WindowTop = b.Y;
+                Settings.Default.WindowWidth = b.Width;
+                Settings.Default.WindowHeight = b.Height;
+                Settings.Default.WindowState = (int)WindowState;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error saving window state: " + ex.Message);
+            }
         }
 
         private void SaveSettings()
@@ -377,6 +461,7 @@ namespace ImageViewer
 
         protected override void OnClosing(CancelEventArgs e)
         {
+            SaveWindowState(); // capture geometry before SaveSettings() persists
             SaveSettings();
             base.OnClosing(e);
         }
