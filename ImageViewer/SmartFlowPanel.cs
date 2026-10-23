@@ -81,8 +81,10 @@ namespace ImageViewer
 		// multiple rows can share a Y key and/or live in node.Values. The
 		// enumerator is bounded to [y, +inf), so this scans only rows below y.
 		Rect? result = null;
-		Action<Tuple<Rect, UIElement>, TreeCollection.INode<Tuple<Rect, UIElement>>> consider =
-			(t, n) => { if (t.Item1.Y >= y && (result == null || t.Item1.Y < result.Value.Y)) result = t.Item1; };
+		// NOTE: the enumerator Traverse() overload wants Func<TValue,bool>;
+		// returning true keeps the bounded traversal going to completion.
+		Func<Tuple<Rect, UIElement>, bool> consider =
+			(t) => { if (t.Item1.Y >= y && (result == null || t.Item1.Y < result.Value.Y)) result = t.Item1; return true; };
 		ElementLocations.Traversal.Traverse(consider);
 		ElementLocations.EnumeratorRange = null;
 		return result ?? default(Rect);
@@ -101,8 +103,8 @@ namespace ImageViewer
 		// Enumerator bounded to (-inf, y]; keep the LARGEST Y strictly below y.
 		Rect result = default(Rect);
 		bool found = false;
-		Action<Tuple<Rect, UIElement>, TreeCollection.INode<Tuple<Rect, UIElement>>> consider =
-			(t, n) => { if (t.Item1.Y < y && (!found || t.Item1.Y >= result.Y)) { result = t.Item1; found = true; } };
+		Func<Tuple<Rect, UIElement>, bool> consider =
+			(t) => { if (t.Item1.Y < y && (!found || t.Item1.Y >= result.Y)) { result = t.Item1; found = true; } return true; };
 		ElementLocations.Traversal.Traverse(consider);
 		ElementLocations.EnumeratorRange = null;
 		return found ? result : default(Rect);
