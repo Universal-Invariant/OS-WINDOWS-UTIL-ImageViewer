@@ -102,23 +102,32 @@ namespace ImageViewer
 	}
 
 	/// <summary>
-	/// The row whose vertical span COVERS viewport position yTop:
-	///   row.Y <= yTop + eps  AND  row.Bottom > yTop + eps.
-	/// Unlike GetLastRowAbove this correctly reports being *inside* a tall
-	/// (book-page) row instead of always returning the topmost row above it -
-	/// which is what made scrolling up from deep inside a tall image snap past
-	/// its top and read as "looping back to the first image".
-	/// Returns default(Rect) when no row covers yTop (gap between rows).
+	/// The row that occupies viewport position y, chosen by START position:
+	/// the row with the LARGEST Y that is <= y (+eps slop). Falls back to the
+	/// first row below y when none starts at or above it.
+	/// This deliberately does NOT require the row's bottom edge to extend
+	/// strictly past y. With fit-to-width ("book view") active, consecutive
+	/// oversized pages share edges exactly (row N+1's Y equals row N's Bottom),
+	/// so the old strict "span covers yTop" test (Bottom > yTop + eps) failed
+	/// right after a wheel notch landed exactly one page step into a tall row:
+	/// the previous row was rejected (its Bottom sits AT yTop, not past it) and
+	/// the covering lookup returned empty, making cur degenerate to the row
+	/// ABOVE. Every subsequent notch then computed target == current offset,
+	/// the wheel appeared dead, and the LineDown() failsafe scrolled by lines
+	/// instead of snapping each next image's top-left corner to the viewport
+	/// top (offset by the scroll overlap setting). That was the book-view
+	/// scroll regression.
+	/// Returns default(Rect) only when there are no laid-out rows at all.
 	/// </summary>
-	public Rect GetRowCovering(double yTop)
+	public Rect GetRowAtOrAbove(double y)
 	{
 		var rows = GetDistinctRows();
 		const double eps = 2.0;
 		Rect? best = null;
 		foreach (var r in rows)
-			if (r.Y <= yTop + eps && r.Bottom > yTop + eps &&
-			    (best == null || r.Y > best.Value.Y)) best = r;
-		return best ?? default(Rect);
+			if (r.Y <= y + eps && (best == null || r.Y > best.Value.Y)) best = r;
+		if (best != null) return best.Value;
+		return GetFirstRowBelow(y - eps);
 	}
 
 	// Distinct row rectangles (one per layout row). ElementLocations stores one
