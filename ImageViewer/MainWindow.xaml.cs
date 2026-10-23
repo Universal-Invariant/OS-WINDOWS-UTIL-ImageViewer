@@ -1,4 +1,4 @@
-using ImageViewer.Properties;
+﻿using ImageViewer.Properties;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -699,21 +699,21 @@ namespace ImageViewer
             {
                 // Top-most row whose content still hangs below the viewport top.
                 var r = panel.GetFirstRowBelow(offset + eps);
-                if (r == null) target = sv.ScrollableHeight;       // already at the bottom
+                if (!panel.HasRows || r.IsEmpty) target = sv.ScrollableHeight;   // already at the bottom
                 else
                 {
                     double rowBottom = r.Y + r.Height;
                     if (rowBottom > offset + r.Height * 0.25)
                         target = rowBottom - sv.ViewportHeight;    // partial row -> bring its bottom edge to the viewport top
                     else
-                        target = r.Y;                               // aligned -> show the next row at the top
+                        target = r.Y;                              // aligned -> show the next row at the top
                 }
             }
             else
             {
                 // Last row that starts above the current top edge.
                 var r = panel.GetLastRowAbove(offset - eps);
-                if (r == null) target = 0;                          // already at the very top
+                if (!panel.HasRows || (r.IsEmpty && !(r.Y == 0 && r.Height > 0))) target = 0;   // already at the very top
                 else
                 {
                     double rowBottom = r.Y + r.Height;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -65,76 +65,51 @@ namespace ImageViewer
 	// visual-tree walking, nothing that disturbs lazy loading.
 
 	/// <summary>
-	/// The topmost row whose TOP edge is at or below y (the next row that
-	/// can be brought to the viewport top). Null when none exists.
+	/// Row lookup for "scroll by image". We deliberately avoid FindNode/INode
+	/// (not accessible on this AVLTree instantiation) and instead use a bounded
+	/// enumerator: an "In" traversal over a half-line KeyInterval yields entries
+	/// in ascending Y order, so we take the first/last qualifying rect.
+	/// O(log n) descent + scan of one row - no full traversal, nothing that
+	/// disturbs lazy loading.
 	/// </summary>
-	public Rect? GetFirstRowBelow(double y)
+	public Rect GetFirstRowBelow(double y)
 	{
-		var node = ElementLocations.FindNode(y, ElementLocations.Root);
-		if (node == null) return null;   // empty tree
-
-		int c = ElementLocations.ItemKey(node.Value).CompareTo(y);
-		if (c >= 0)
-		{
-			// Node starts at/after y: the leftmost descendant is the smallest such key.
-			while (node.Left != null) node = node.Left;
-		} else
-		{
-			// Node starts above y; the answer is the smallest key in its right subtree.
-			node = MinSubNodePublic(node.Right);
-		}
-		if (node == null) return null;
-		return FirstRectOf(node);
+		ElementLocations.EnumeratorRange = new TreeCollection.KeyInterval<double>(y, double.PositiveInfinity);
+		ElementLocations.Traversal.TraversalMethod = TreeCollection.TraversalEnumeratorMethod.In;
+		ElementLocations.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Normal;
+		// Collect ALL rows in range (not just the first element of each node):
+		// multiple rows can share a Y key and/or live in node.Values. The
+		// enumerator is bounded to [y, +inf), so this scans only rows below y.
+		Rect? result = null;
+		Action<Tuple<Rect, UIElement>, TreeCollection.INode<Tuple<Rect, UIElement>>> consider =
+			(t, n) => { if (t.Item1.Y >= y && (result == null || t.Item1.Y < result.Value.Y)) result = t.Item1; };
+		ElementLocations.Traversal.Traverse(consider);
+		ElementLocations.EnumeratorRange = null;
+		return result ?? default(Rect);
 	}
 
 	/// <summary>
-	/// The bottom-most row whose TOP edge is strictly above y (the row
-	/// currently cut off at the viewport top, or just before it).
-	/// Null when none exists.
+	/// The bottom-most row whose TOP edge is strictly above y (the row currently
+	/// cut off at the viewport top, or just before it). Returns default(Rect)
+	/// when none exists; callers guard with HasRows.
 	/// </summary>
-	public Rect? GetLastRowAbove(double y)
+	public Rect GetLastRowAbove(double y)
 	{
-		var node = ElementLocations.FindNode(y, ElementLocations.Root);
-		if (node == null) return null;   // empty tree
-
-		int c = ElementLocations.ItemKey(node.Value).CompareTo(y);
-		if (c < 0)
-		{
-			// This node qualifies; keep going right for a larger (lower) key.
-			while (node.Right != null) node = node.Right;
-		} else
-		{
-			// Node starts at/after y; the answer is the largest key in its left subtree.
-			node = MaxSubNodePublic(node.Left);
-		}
-		if (node == null) return null;
-		return FirstRectOf(node);
+		ElementLocations.EnumeratorRange = new TreeCollection.KeyInterval<double>(double.NegativeInfinity, y);
+		ElementLocations.Traversal.TraversalMethod = TreeCollection.TraversalEnumeratorMethod.In;
+		ElementLocations.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Normal;
+		// Enumerator bounded to (-inf, y]; keep the LARGEST Y strictly below y.
+		Rect result = default(Rect);
+		bool found = false;
+		Action<Tuple<Rect, UIElement>, TreeCollection.INode<Tuple<Rect, UIElement>>> consider =
+			(t, n) => { if (t.Item1.Y < y && (!found || t.Item1.Y >= result.Y)) { result = t.Item1; found = true; } };
+		ElementLocations.Traversal.Traverse(consider);
+		ElementLocations.EnumeratorRange = null;
+		return found ? result : default(Rect);
 	}
 
-	static TreeCollection.INode<Tuple<Rect, UIElement>> MinSubNodePublic(TreeCollection.INode<Tuple<Rect, UIElement>> node)
-	{
-		if (node == null) return null;
-		while (node.Left != null) node = node.Left;
-		return node;
-	}
-
-	static TreeCollection.INode<Tuple<Rect, UIElement>> MaxSubNodePublic(TreeCollection.INode<Tuple<Rect, UIElement>> node)
-	{
-		if (node == null) return null;
-		while (node.Right != null) node = node.Right;
-		return node;
-	}
-
-	// A tree node groups all elements of one row (same Y key); the shared
-	// rect dimensions live on every entry, so any one suffices.
-	static Rect? FirstRectOf(TreeCollection.INode<Tuple<Rect, UIElement>> node)
-	{
-		var v = node.Value;
-		if (v != null) return v.Item1;
-		var list = node.Values;
-		if (list != null) { foreach (var t in list) return t.Item1; }
-		return null;
-	}
+	/// <summary>True when at least one laid-out row exists.</summary>
+	public bool HasRows { get { return ElementLocations.Count > 0; } }
 
 
         ScrollViewer ScrollOwner { get { return _scrollOwner; } set { scrollOwnerChanged(value); _scrollOwner = value; } } ScrollViewer _scrollOwner;
