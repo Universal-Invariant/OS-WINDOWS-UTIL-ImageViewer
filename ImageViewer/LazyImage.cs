@@ -95,15 +95,18 @@ namespace ImageViewer
             // Never let an image collapse to zero (or negative/NaN) extents -
             // degenerate sizes break the flow layout and cause overlaps.
             const double minDim = 8.0;
-            var newW = Math.Max(minDim, w);
-            var newH = Math.Max(minDim, h);
+            var newW = double.IsNaN(w) ? minDim : Math.Max(minDim, w);
+            var newH = double.IsNaN(h) ? minDim : Math.Max(minDim, h);
 
             // Only touch Width/Height (and dirty the layout system) when the
             // size actually changed. This keeps bulk relayouts cheap: most
             // images - e.g. all the small ones while fit-to-width is on -
             // are skipped entirely, preserving the snappy lazy behavior.
-            bool sizeChanged = !this.Width.HasValue || Math.Abs(this.Width.Value - newW) >= 0.01 ||
-                               !this.Height.HasValue || Math.Abs(this.Height.Value - newH) >= 0.01;
+            // NOTE: Image.Width/Height are plain doubles (NOT Nullable), so
+            // "unset" shows up as NaN rather than HasValue == false.
+            bool sizeChanged = double.IsNaN(this.Width) || double.IsNaN(this.Height) ||
+                               Math.Abs(this.Width - newW) >= 0.01 ||
+                               Math.Abs(this.Height - newH) >= 0.01;
             if (sizeChanged)
             {
                 this.Width = newW;
