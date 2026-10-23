@@ -177,5 +177,17 @@ namespace ImageViewer.Properties {
                 this["ScrollNotchRows"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool OpenOnDoubleClick {
+            get {
+                return ((bool)(this["OpenOnDoubleClick"]));
+            }
+            set {
+                this["OpenOnDoubleClick"] = value;
+            }
+        }
     }
 }

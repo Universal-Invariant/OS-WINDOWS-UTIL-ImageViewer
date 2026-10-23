@@ -156,6 +156,13 @@ namespace ImageViewer
             // default pixel scrolling entirely (no double-scroll).
             LV.PreviewMouseWheel += LV_PreviewMouseWheel;
 
+            // PageUp/PageDown/Home/End mirror the wheel's row stepping when
+            // scroll-by-image is on (see LV_PreviewKeyDown).
+            LV.PreviewKeyDown += LV_PreviewKeyDown;
+
+            // Double-click an image to open it with the system default viewer.
+            LV.MouseLeftButtonDown += LV_MouseLeftButtonDown;
+
             // File-system watcher for the current folder: when images are
             // added/deleted/renamed on disk we flag the refresh button red
             // (we never auto-reload - a full reload is expensive and would
@@ -696,7 +703,8 @@ namespace ImageViewer
                 bg,
                 Settings.Default.FitToWidthMinImageWidth,
                 Settings.Default.ScrollUndershootPercent,
-                Settings.Default.AutoRefreshOnFolderChange)
+                Settings.Default.AutoRefreshOnFolderChange,
+                Settings.Default.ScrollNotchRows)
             {
                 Owner = this
             };
@@ -726,6 +734,9 @@ namespace ImageViewer
                 // notch, so persisting it here is all that's needed (no relayout).
                 Settings.Default.ScrollUndershootPercent = dlg.NewScrollUndershootPercent;
                 Settings.Default.AutoRefreshOnFolderChange = dlg.NewAutoRefreshOnFolderChange;
+                // Rows-per-notch is read live by the wheel handler on every
+                // notch, so persisting it here is all that's needed (no relayout).
+                Settings.Default.ScrollNotchRows = dlg.NewScrollNotchRows;
 
                 // If auto-refresh was just enabled and changes are already pending,
                 // reload now so the red button doesn't sit there misleadingly.
@@ -934,8 +945,31 @@ namespace ImageViewer
                 if (down) sv.LineDown();
                 else sv.LineUp();
             }
+        }
 
-            e.Handled = true;                                      // suppress default 3-lines-per-tick scrolling
+        // PageUp/PageDown/Home/End in scroll-by-image mode: step whole rows
+        // exactly like the wheel does, instead of WPF's default viewport jump.
+        void LV_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (!(TGB_ScrollByImage.IsChecked ?? false)) return;   // pixel mode: let WPF handle keys
+            if (Keyboard.Modifiers != ModifierKeys.None) return;   // leave Ctrl/Alt combos alone
+
+            var sv = GetScrollViewer();
+            if (sv == null || sv.ScrollableHeight <= 0) return;
+
+            int perNotch = 1;
+            try { perNotch = Settings.Default.ScrollNotchRows; } catch { }
+            perNotch = Math.Max(1, Math.Min(5, perNotch));
+
+            switch (e.Key)
+            {
+                case Key.PageDown: ScrollToRowStep(perNotch); break;
+                case Key.PageUp: ScrollToRowStep(-perNotch); break;
+                case Key.Home: sv.ScrollToVerticalOffset(0); break;
+                case Key.End: sv.ScrollToVerticalOffset(sv.ScrollableHeight); break;
+                default: return;                                  // let other keys bubble on
+            }
+            e.Handled = true;
         }
 
         ScrollViewer _svCache;
