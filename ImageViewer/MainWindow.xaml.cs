@@ -118,7 +118,7 @@ namespace ImageViewer
 
         string fileTypes = "*.jpg; *.jpeg; *.jpe; *.jif; *.jfif; *.jfi; *.png; *.bmp; *.ico; *.gif; *.tiff";
         BackgroundWorker currentRecurser = null;
-        
+
 
 
 
@@ -529,7 +529,7 @@ namespace ImageViewer
                         recentPaths.Add(item.Trim('\\'));
                 }
             }
-        
+
             Settings.Default.RecentPaths = recentPaths;
 
             // Save the last used path (the text in the combobox)
@@ -1203,8 +1203,6 @@ namespace ImageViewer
 
             switch (e.Key)
             {
-                case Key.PageDown: ScrollToRowStep(perNotch); break;
-                case Key.PageUp: ScrollToRowStep(-perNotch); break;
                 case Key.Home: sv.ScrollToVerticalOffset(0); break;
                 case Key.End: sv.ScrollToVerticalOffset(sv.ScrollableHeight); break;
                 case Key.F:
@@ -1383,7 +1381,7 @@ namespace ImageViewer
             var cb = sender as ComboBox;
             var s = cb.SelectedItem as String;
             if (s == null) return;
-            if (!Directory.Exists(s.TrimEnd('\\'))) return;            
+            if (!Directory.Exists(s.TrimEnd('\\'))) return;
             cb.SelectionChanged -= CB_Path_SelectionChanged;
             cb.Text = s;
             TextBox_TextChanged(sender, null);
@@ -1420,7 +1418,7 @@ namespace ImageViewer
 
                 var ScaleFactor = 1.0;
                 Dispatcher.Invoke(new Action(() =>
-                {                    
+                {
                     ScaleFactor = Math.Max(0.1, Math.Min(3.0, SD_Scale.Value));
                 }));
 
