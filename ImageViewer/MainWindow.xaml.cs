@@ -22,6 +22,7 @@ using System.Windows.Interop;
 using System.Windows.Threading;
 using WinForms = System.Windows.Forms;
 using Path = System.IO.Path;
+using System.Windows.Controls.Primitives;
 
 namespace ImageViewer
 {
@@ -102,7 +103,7 @@ namespace ImageViewer
         // trigger the scrollbar appearing mid-layout -> extent shrinks ~17px ->
         // wrap test fails -> two window-width pages share one row and overlap
         // ("book view" chaos). 1.5% covers it for any sane window width.
-        const double FitToWidthFactor = 0.985;
+        const double FitToWidthFactor = 1; //0.985;
 
         // Scale slider drag throttle: ApplyScale() is O(all images), so we
         // coalesce rapid ValueChanged events into at most one relayout per
@@ -120,7 +121,20 @@ namespace ImageViewer
         BackgroundWorker currentRecurser = null;
 
 
+        private static T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T target && target is ScrollBar sb && sb.Orientation == Orientation.Vertical)
+                    return target;
 
+                var result = FindVisualChild<T>(child);
+                if (result != null)
+                    return result;
+            }
+            return null;
+        }
 
         /// <summary>
         /// Strips the default ListViewItem chrome (16px L/R padding, border,
@@ -206,12 +220,75 @@ namespace ImageViewer
             Watcher.Error += (s, ev) => { try { Watcher.EnableRaisingEvents = true; } catch { }; };
 
 
-            // Show mouse Coords
+            // Define a timer for a smooth fade/delay hide
+            DispatcherTimer _scrollBarHideTimer = null;
+            
+            // Inside your constructor where you set up MouseMove:
             MouseMove += (s, e) =>
             {
-                Point M = Mouse.GetPosition(this);                
-                (App.Current.MainWindow as MainWindow).SB_Mouse.Text = $"({(Int32)Math.Ceiling(M.X)}, {(Int32)Math.Ceiling(M.Y)})";
+
+                Point M = Mouse.GetPosition(this);
+                var mainWindow = App.Current.MainWindow as MainWindow;
+                if (mainWindow != null && mainWindow.SB_Mouse != null)
+                {
+                    mainWindow.SB_Mouse.Text = $"({(Int32)Math.Ceiling(M.X)}, {(Int32)Math.Ceiling(M.Y)})";
+                }
+                               
+
+                var ScrollOwner = this.GetScrollViewer();
+                if (ScrollOwner == null) return;
+                
+                                 
+                // 1. Initialize the hide timer once
+                if (_scrollBarHideTimer == null)
+                {
+                    _scrollBarHideTimer = new DispatcherTimer();
+                    _scrollBarHideTimer.Interval = TimeSpan.FromMilliseconds(250); // Grace period before hiding
+                    _scrollBarHideTimer.Tick += (sender, args) =>
+                    {
+                        _scrollBarHideTimer.Stop();
+                        var scrollOwner = ScrollOwner ?? VisualHelper.TryFindParent<ScrollViewer>(this);
+                        if (scrollOwner != null)
+                        {
+                            scrollOwner.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
+                        }
+                    };
+                }
+
+
+
+                // 3. Handle Scrollbar Proximity
+                var verticalScrollBar = FindVisualChild<ScrollBar>(ScrollOwner);
+                double sliverWidth = (verticalScrollBar?.Width ?? 30)*1.35; // Slightly wider zone so it's easy to hit
+                bool isNearRightEdge = M.X >= (this.ActualWidth - sliverWidth);
+                var activeScrollOwner = ScrollOwner ?? VisualHelper.TryFindParent<ScrollViewer>(this);
+
+                if (activeScrollOwner != null)
+                {
+                    if (isNearRightEdge)
+                    {
+                        
+                        // Cancel any pending hide action because the mouse is in the zone
+                        _scrollBarHideTimer.Stop();
+
+                        // Reveal the scrollbar
+                        if (activeScrollOwner.VerticalScrollBarVisibility != ScrollBarVisibility.Auto)
+                        {
+                            activeScrollOwner.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                        }
+                    }
+                    else
+                    {
+                        // If the scrollbar is visible and the hide timer isn't already running, start it
+                        if (activeScrollOwner.VerticalScrollBarVisibility == ScrollBarVisibility.Auto && !_scrollBarHideTimer.IsEnabled)
+                        {
+                            _scrollBarHideTimer.Start();
+                        }
+                    }
+                }
             };
+
+
             return;
 
         }
@@ -225,7 +302,8 @@ namespace ImageViewer
         {
             // Detach first so a failed re-attach can't leave a watcher on the old path.
             try { Watcher.EnableRaisingEvents = false; } catch { }
-            Watcher.Path = "";
+            
+            try { Watcher.Path = ""; } catch { }
 
             var dir = oldPath;
             if (string.IsNullOrEmpty(dir)) return;
@@ -574,8 +652,10 @@ namespace ImageViewer
 
         // Re-applies the current layout settings (scale slider + fit-to-width
         // toggle) to every loaded image and forces a layout refresh.
-        private void ApplyScale()
+        private void ApplyScale(bool forceInvalidate = false)
         {
+            var panel = SmartFlowPanel.Current;
+            if (panel != null) panel.InvalidateMeasures = true;
             var ScaleFactor = Math.Max(0.1, Math.Min(3.0, SD_Scale.Value));
             var fitWidth = ComputeFitToWidthScale();
             var maxSizeFactor = MaxSizeFactor();
@@ -590,8 +670,7 @@ namespace ImageViewer
                 item.UpdateSize(ScaleFactor, fitWidth, maxSizeFactor, minFitPx);
             }
 
-            // Force one relayout pass for the whole panel.
-            var panel = SmartFlowPanel.Current;
+            // Force one relayout pass for the whole panel.            
             panel?.InvalidateLocations();
 
             LV.InvalidateMeasure();
@@ -788,14 +867,14 @@ namespace ImageViewer
         // fit-to-width. Images below this keep their normal scale so icons
         // and other small images don't get blown up to the full window
         // width - they then flow in between the large "pages".
-        double FitToWidthMinPixels()
+        public double FitToWidthMinPixels()
         {
             return Math.Max(0, Settings.Default.FitToWidthMinImageWidth);
         }
 
         // Maximum allowed image dimension (from the settings dialog), used as
         // the pre-scale clamp for images larger than the window.
-        double MaxSizeFactor()
+        public double MaxSizeFactor()
         {
             return Math.Max(0.1, Math.Min(2.0, Settings.Default.MaxImageSizePercent / 100.0));
         }
@@ -930,8 +1009,7 @@ namespace ImageViewer
                 if (Math.Abs(SD_Scale.Value - _scaleBeforeFitToWidth) > 0.001 &&
                     Math.Abs(_scaleBeforeFitToWidth - 1.0) > 0.001)
                     SD_Scale.Value = _scaleBeforeFitToWidth; // triggers ApplyScale()
-            }
-
+            }            
             ApplyScale();
         }
         double _scaleBeforeFitToWidth = 1.0;
@@ -939,6 +1017,7 @@ namespace ImageViewer
         // Two-state "scroll one image per wheel tick" toggle (persistent).
         private void TGB_ScrollByImage_Changed(object sender, RoutedEventArgs e)
         {
+
             Settings.Default.ScrollByImage = TGB_ScrollByImage.IsChecked ?? false;
             // Leaving scroll-by-image mode: drop any half-accumulated fractional
             // delta so re-enabling the mode doesn't fire a stale snap.
@@ -1048,8 +1127,10 @@ namespace ImageViewer
             // from the panel's actual rendered position (TransformToVisual is
             // authoritative and self-correcting) and convert targets back with
             // chromeOffset before scrolling.
-            GeneralTransform gt = panel.TransformToVisual(sv);
-            double panelTopInSv = gt != null ? gt.Transform(new Point(0, 0)).Y : 0.0;
+            //GeneralTransform gt = panel.TransformToVisual(sv);
+            //double panelTopInSv = gt != null ? gt.Transform(new Point(0, 0)).Y : 0.0;
+            var panelTopInSv = 0.0;
+
             double offset = sv.VerticalOffset - panelTopInSv;      // viewport top in PANEL space
             double chromeOffset = sv.VerticalOffset - offset;      // fixed chrome above panel
             double offsetOfEntry = offset;                         // remember entry position for the failsafe
@@ -1303,8 +1384,8 @@ namespace ImageViewer
         string oldPath = "";
         private void TextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-
             var cb = sender as ComboBox;
+            if (cb == null) return;
             var t = cb.Text;
             if (tbBrush == null) tbBrush = cb.Foreground;
 
@@ -1315,9 +1396,11 @@ namespace ImageViewer
                 cb.FontStyle = FontStyles.Normal;
                 return;
             }
-            if (oldPath == null || string.Compare(oldPath.TrimEnd('\\'), t.TrimEnd('\\')) == 0) return;
 
             cb.Foreground = tbBrush;
+            cb.FontWeight = FontWeights.Normal;
+            cb.FontStyle = FontStyles.Normal;
+            
 
             // Set oldPath BEFORE touching the items collection: Items.Remove /
             // Items.Insert / SelectedIndex=0 mutate ComboBox.Text and re-raise
@@ -1328,7 +1411,7 @@ namespace ImageViewer
             // around Remove/Insert is also why typed paths sometimes vanished
             // from the recent list instead of being remembered.
             oldPath = t;
-
+            //SaveSettings();
             // New folder => re-aim the file-system watcher and clear any stale
             // "files changed" indicator from the previous folder.
             _pendingChanges = false;
@@ -1373,72 +1456,83 @@ namespace ImageViewer
 
 
 
-
-
         private void showImages(object sender, DoWorkEventArgs e)
         {
-            LV.Dispatcher.BeginInvoke((Action)(() =>
+            // Clear the ListView on the UI thread first
+            LV.Dispatcher.Invoke((Action)(() =>
             {
                 LV.Items.Clear();
                 CB_Path.FontWeight = FontWeights.Normal;
                 CB_Path.FontStyle = FontStyles.Normal;
-            }), null);
+            }));
 
             GC.Collect();
 
             var dir = new DirectoryInfo(e.Argument as string);
+            var recurse = (bool)LV.Dispatcher.Invoke((Func<bool>)(() => TGB_Recurse.IsChecked ?? false));
 
-            var recurse = (bool)LV.Dispatcher.Invoke((Func<object>)(() => { return (TGB_Recurse.IsChecked.HasValue) ? TGB_Recurse.IsChecked.Value : false; }), null);
+            var pathBatch = new List<string>();
+            int numFilesRead = 0;
 
-            var numFilesRead = 0;
-            var count = 0;
-            var maxDelay = 250;
             foreach (var file in dir.EnumerateFiles("*", recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly))
             {
                 if (e.Cancel) return;
-                if (!fileTypes.Contains("*" + file.Extension.ToLower()) || file.Extension == "") continue;
+                string ext = file.Extension?.ToLower();
+                if (string.IsNullOrEmpty(ext) || !fileTypes.Contains("*" + ext)) continue;
+
                 numFilesRead++;
+                pathBatch.Add(file.FullName);
 
-                var ScaleFactor = 1.0;
-                Dispatcher.Invoke(new Action(() =>
+                // When a batch reaches 100 paths, send them to the UI thread to be built
+                if (pathBatch.Count >= 100)
                 {
-                    ScaleFactor = Math.Max(0.1, Math.Min(3.0, SD_Scale.Value));
-                }));
-
-
-
-                double layoutW = 0, layoutH = 0, fitWidth = 0, maxSizeFactor = 1.0, minFitPx = 0;
-                Dispatcher.Invoke(new Action(() =>
-                {
-                    layoutW = GetLayoutWidth();
-                    layoutH = GetLayoutHeight();
-                    fitWidth = ComputeFitToWidthScale();
-                    maxSizeFactor = MaxSizeFactor();
-                    minFitPx = FitToWidthMinPixels();
-                }));
-
-                LV.Dispatcher.Invoke((Action<string>)((path) => { var item = new LazyImage(path, LV, layoutW * maxSizeFactor, layoutH * maxSizeFactor);  LV.Items.Add(item); item.UpdateSize(ScaleFactor, fitWidth, maxSizeFactor, minFitPx); }), file.FullName);
-
-                if (count++ > maxDelay)
-                {
-                    LV.Dispatcher.Invoke((Action<int>)((c) => { SB_NumFilesRead.Text = c.ToString(); }), numFilesRead);
-
-
-                    Thread.Sleep(250);
-                    count = 0;
+                    var chunk = pathBatch;
+                    pathBatch = new List<string>(); // Start a new batch
+                    ProcessBatchOnUIThread(chunk, numFilesRead);
                 }
-
-
             }
 
+            // Flush any remaining paths in the final batch
+            if (pathBatch.Count > 0)
+            {
+                ProcessBatchOnUIThread(pathBatch, numFilesRead);
+            }
 
-            LV.Dispatcher.Invoke((Action)(() => { CB_Path.Foreground = Brushes.Green; CB_Path.FontWeight = FontWeights.Heavy; CB_Path.FontStyle = FontStyles.Oblique; SmartFlowPanel.Current.InvalidateLocations(); SB_NumFilesRead.Text = numFilesRead.ToString(); }), null);
+            // Finalize on the UI thread
+            LV.Dispatcher.Invoke(() =>
+            {
+                SB_NumFilesRead.Text = numFilesRead.ToString();
+                SmartFlowPanel.Current?.InvalidateLocations();
 
-
-
-            return;
+                CB_Path.Foreground = Brushes.Green;
+                CB_Path.FontWeight = FontWeights.Heavy;
+                CB_Path.FontStyle = FontStyles.Oblique;
+            });
         }
 
+        // Helper method running strictly on the UI thread to instantiate UI elements safely
+        private void ProcessBatchOnUIThread(List<string> filePaths, int totalFilesSoFar)
+        {
+            LV.Dispatcher.Invoke(() =>
+            {
+                var scaleFactor = Math.Max(0.1, Math.Min(3.0, SD_Scale.Value));
+                double layoutW = GetLayoutWidth();
+                double layoutH = GetLayoutHeight();
+                double fitWidth = ComputeFitToWidthScale();
+                double maxSizeFactor = MaxSizeFactor();
+                double minFitPx = FitToWidthMinPixels();
+
+                foreach (var path in filePaths)
+                {
+                    // Instantiated safely on the UI thread (STA)
+                    var item = new LazyImage(path, LV, layoutW * maxSizeFactor, layoutH * maxSizeFactor);
+                    item.UpdateSize(scaleFactor, fitWidth, maxSizeFactor, minFitPx);
+                    LV.Items.Add(item);
+                }
+
+                SB_NumFilesRead.Text = totalFilesSoFar.ToString();
+            });
+        }
         private void BtnBgColor_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
 

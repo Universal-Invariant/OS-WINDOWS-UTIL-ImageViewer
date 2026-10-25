@@ -5,6 +5,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
@@ -53,6 +54,7 @@ namespace ImageViewer
 		// When it differs from the current one the viewport changed and every
 		// image must recompute its size (used by fit-to-width mode).
 		Size _lastAvailableSize;
+		public bool InvalidateMeasures = false;
 
 		public static SmartFlowPanel Current = null;
 		public SmartFlowPanel() { Type = FlowPanelType.HorizontalWrapPanel; ElementLocations.ItemKey = (t) => { return t.Item1.Y; }; Current = this; }
@@ -326,17 +328,17 @@ namespace ImageViewer
 			if (ScrollOwner == null) ScrollOwner = VisualHelper.TryFindParent<ScrollViewer>(this);
 
 			bool relayout = _invalidatedMeasure;
-
-			// The ScrollViewer measures its content with infinite height and a
-			// fixed width equal to the viewport. When that width changes (the
-			// window was resized, or a vertical scrollbar appeared/disappeared)
-			// while fit-to-width is active, every image must recompute its size
-			// BEFORE we lay anything out - otherwise the stale sizes overlap the
-			// new row boundaries. Detecting it here (from the actual extent) is
-			// race-free, unlike debouncing on Window.SizeChanged.
-			if (!availableSize.Width.Equals(_lastAvailableSize.Width))
-			{
-				_lastAvailableSize = availableSize;
+			bool remeasure = !availableSize.Width.Equals(_lastAvailableSize.Width) || InvalidateMeasures;
+            // The ScrollViewer measures its content with infinite height and a
+            // fixed width equal to the viewport. When that width changes (the
+            // window was resized, or a vertical scrollbar appeared/disappeared)
+            // while fit-to-width is active, every image must recompute its size
+            // BEFORE we lay anything out - otherwise the stale sizes overlap the
+            // new row boundaries. Detecting it here (from the actual extent) is
+            // race-free, unlike debouncing on Window.SizeChanged.
+            if (remeasure)
+			{				
+                _lastAvailableSize = availableSize;
 				// ALWAYS force a full relayout when the viewport changes, even
 				// when fit-to-width is OFF: previously relayout was only set inside
 				// the FitToWidthActive() branch, so toggling book view off (or any
@@ -355,9 +357,9 @@ namespace ImageViewer
 						}
 					}
 				}
-			}
+			}            
 
-			if (!relayout) return MeasureSize;
+            if (!relayout) return MeasureSize;
 
 			{
 				TempElements.Clear();
@@ -437,12 +439,10 @@ namespace ImageViewer
 				totalHeight += currentLineHeight;
 
 				MeasureSize = new Size(double.IsPositiveInfinity(availableSize.Width) ? totalWidth : availableSize.Width, double.IsPositiveInfinity(availableSize.Height) ? totalHeight : availableSize.Height);
-				_invalidatedMeasure = false;
-
-
-			}
-
-			return MeasureSize;
+				_invalidatedMeasure = false;                
+            }
+            
+            return MeasureSize;
 
 		}
 

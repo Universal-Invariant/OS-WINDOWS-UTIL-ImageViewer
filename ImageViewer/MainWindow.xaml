@@ -193,7 +193,7 @@
 
             <ComboBox Grid.Column="7" x:Name="CB_Path" Style="{StaticResource ToolComboBox}"
                       Width="260" MinWidth="120" IsEditable="True" VerticalContentAlignment="Center"
-                      KeyDown="CB_Path_KeyDown" DropDownClosed="CB_Path_DropDownClosed" SelectionChanged="CB_Path_SelectionChanged"/>
+                      KeyDown="CB_Path_KeyDown" TextBox.TextChanged="TextBox_TextChanged" DropDownClosed="CB_Path_DropDownClosed" SelectionChanged="CB_Path_SelectionChanged"/>
 
             <!-- Browse button (folder icon) - now actually hooked up -->
             <Button Grid.Column="8" Name="BtnBrowse" Style="{StaticResource ToolButton}" Click="BtnBrowse_Click"
@@ -240,7 +240,7 @@
              version where XAML attached-property syntax outside a target element
              (ListView.ItemContainerStyle here, after the toolbar Grid) fails to
              compile with MC3015. -->
-        <ListView Name="LV" Background="AliceBlue" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="False" SelectionMode="Multiple" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <ListView Name="LV" Background="AliceBlue" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Hidden" VirtualizingStackPanel.IsVirtualizing="False" SelectionMode="Multiple" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
             <ListView.ItemsPanel>
                 <ItemsPanelTemplate>
                     <ImageViewer:SmartFlowPanel/>
