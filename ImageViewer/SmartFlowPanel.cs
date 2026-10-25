@@ -289,7 +289,7 @@ namespace ImageViewer
 				if (isVisible)
 				{
 					var image = GetImage(t.Item2);
-					if (image == null) return true;
+					if (image == null) return;
 					image.LoadImage();
 					if (!_visibleSet.Add(t)) VisibleUIElements.Add(t);
 				}
@@ -303,7 +303,7 @@ namespace ImageViewer
 					if (image != null) image.UnLoadImage();
 					VisibleUIElements.Remove(t);
 				}
-				return true;
+				return;
 			});
 
 			return;

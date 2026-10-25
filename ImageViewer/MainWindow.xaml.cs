@@ -1499,7 +1499,8 @@ namespace ImageViewer
             }
 
             // Finalize on the UI thread
-            LV.Dispatcher.Invoke(() =>
+            //LV.Dispatcher.Invoke(() =>
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
                 SB_NumFilesRead.Text = numFilesRead.ToString();
                 SmartFlowPanel.Current?.InvalidateLocations();
@@ -1507,13 +1508,14 @@ namespace ImageViewer
                 CB_Path.Foreground = Brushes.Green;
                 CB_Path.FontWeight = FontWeights.Heavy;
                 CB_Path.FontStyle = FontStyles.Oblique;
-            });
+            }));
         }
 
         // Helper method running strictly on the UI thread to instantiate UI elements safely
         private void ProcessBatchOnUIThread(List<string> filePaths, int totalFilesSoFar)
         {
-            LV.Dispatcher.Invoke(() =>
+            //LV.Dispatcher.Invoke(() =>
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
                 var scaleFactor = Math.Max(0.1, Math.Min(3.0, SD_Scale.Value));
                 double layoutW = GetLayoutWidth();
@@ -1531,7 +1533,7 @@ namespace ImageViewer
                 }
 
                 SB_NumFilesRead.Text = totalFilesSoFar.ToString();
-            });
+            }));
         }
         private void BtnBgColor_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
