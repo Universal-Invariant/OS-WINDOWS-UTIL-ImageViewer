@@ -807,8 +807,14 @@ namespace TreeCollection
 					else if (c > 0) p = p.Right;
 						else
 						{
+							// BUG FIX: p.Values is NULL whenever the key has no duplicates
+							// (a normal single-image row) - the old unconditional deref threw a
+							// NullReferenceException on the first RemoveKey of any unique key.
+							if (p.Values != null)
+							{
 							ValueCount -= p.Values.Count;
 							ValueCount++; // Node Value is not empty and don't want to double subtract
+						}
 							p.Values = null;
 							
 							Remove(p.Value);
@@ -856,6 +862,11 @@ namespace TreeCollection
 		{
 			this.Root = null;
 			this.Count	= 0;
+			// BUG FIX: NodeCount is an INDEPENDENT field (only Count and ValueCount
+			// alias the same backing counter). It used to survive Clear(), so every
+			// relayout cycle (Clear + re-insert N elements) inflated it without bound:
+			// consumers saw a phantom tree size right after a folder switch.
+			NodeCount = 0;
 		}
 
 		public void CopyTo(TValue[] array, int index)

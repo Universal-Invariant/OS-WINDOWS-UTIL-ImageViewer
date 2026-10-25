@@ -175,12 +175,26 @@ namespace ImageViewer
 			IsLoaded = false; IsDrawn = false;
 
  
+			// PERF REGRESSION FIX: this constructor used to run on the UI thread
+			// for EVERY image in a folder (6k images -> thousands of synchronous
+			// file opens + header reads inside Dispatcher batches -> frozen app and
+			// quadratic measure passes). It is now invoked on a BACKGROUND thread by
+			// MainWindow's batch loader. That is safe because nothing here creates
+			// UI-affinity state:
+			//   * BitmapDecoder.Create(..., DelayCreation, CacheOption.None) only
+			//     opens the file and parses the IMAGE HEADER (pixel dims + DPI) - it
+			//     never decodes pixels. The heavy decode still happens only in
+			//     LoadImage(), i.e. when an image scrolls into view. Laziness kept.
+			//   * Freeze() makes the decoder cross-thread usable from the UI thread.
+			// If ImageWidth stays 0 (corrupt/unsupported file), MainWindow falls back
+			// to a placeholder size on the UI thread and patches the real size later.
 			var imageStream = new Uri(path, UriKind.Absolute); 
 			BitmapDecoder dc = null;
 			try
 			{
 				dc = BitmapDecoder.Create(imageStream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
 				if (dc.Frames.Count == 0) return;
+				if (dc.CanFreeze) dc.Freeze();
 			} catch (Exception e)
 			{
 				return;
@@ -286,25 +300,35 @@ namespace ImageViewer
 
 		}
 
+		// PERF FIX: ToString() showed up as a top CPU consumer in the VS profiler
+		// even though it "should be free". Two reasons:
+		//   1) WPF calls ToString() implicitly all over the place (trace logging,
+		//      content-string coercion, ListView item containers, debugger/data
+		//      inspection), so it runs far more often than just mouse-hover.
+		//   2) The old body did a TransformToVisual matrix computation plus TWO
+		//      interpolated-string allocations with eight Math.Ceiling boxing ops
+		//      per call - expensive work being done thousands of times for a string
+		//      nobody was reading.
+		// LayoutRect is already cached by SmartFlowPanel during arrange, so we use
+		// it directly (O(1), no transforms) and build the string with StringBuilder
+		// (no intermediate format strings). Same information, ~zero cost.
 		public override string ToString()
 		{
-			var rect = GetBoundingBox(this, this.VisualParent as Visual);
-
-			string P = "";
-            if (LayoutRect.HasValue) {
-				P = $"({(Int32)Math.Ceiling(LayoutRect.Value.X)},{(Int32)Math.Ceiling(LayoutRect.Value.Y)}, {(Int32)Math.Ceiling(LayoutRect.Value.Width)}x{(Int32)Math.Ceiling(LayoutRect.Value.Height)}) - ";
-            }
-            return $"{P}{(Int32)Math.Ceiling(rect.Width)}x{(Int32)Math.Ceiling(rect.Height)} - {(Int32)Math.Ceiling(ImageWidth)}x{(Int32)Math.Ceiling(ImageHeight)} -- {Path}";
-		}
-
-		private static Rect GetBoundingBox(FrameworkElement child, Visual parent)
-		{
-			if (parent == null) return new Rect();
-			//var transform = child.TransformToAncestor(parent);
-			var transform = child.TransformToVisual(parent);
-			var topLeft = transform.Transform(new Point(0, 0));
-			var bottomRight = transform.Transform(new Point(child.Width, child.Height));
-			return new Rect(topLeft, bottomRight);
+			var sb = new StringBuilder(64);
+			if (LayoutRect.HasValue)
+			{
+				var lr = LayoutRect.Value;
+				sb.Append('(').Append((Int32)Math.Ceiling(lr.X)).Append(',')
+				  .Append((Int32)Math.Ceiling(lr.Y)).Append(", ")
+				  .Append((Int32)Math.Ceiling(lr.Width)).Append('x')
+				  .Append((Int32)Math.Ceiling(lr.Height)).Append(") - ");
+			}
+			sb.Append((Int32)Math.Ceiling(ActualWidth > 0 ? ActualWidth : Width))
+			  .Append('x').Append((Int32)Math.Ceiling(ActualHeight > 0 ? ActualHeight : Height))
+			  .Append(" - ").Append((Int32)Math.Ceiling(ImageWidth))
+			  .Append('x').Append((Int32)Math.Ceiling(ImageHeight))
+			  .Append(" -- ").Append(Path);
+			return sb.ToString();
 		}
 
 
