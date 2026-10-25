@@ -61,6 +61,21 @@ namespace ImageViewer
 
 		public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArrange = true; InvalidateRowCache(); InvalidateMeasure(); InvalidateVisual(); } bool _invalidatedMeasure = true; bool _invalidatedArrange = true;
 
+		// Called by MainWindow when items are appended to (or cleared from)
+		// the ListView that hosts this panel. The flow layout is NOT incremental:
+		// every batch of images changes row composition and the total extent, so
+		// a full relayout must be scheduled for each change. Without this the
+		// panel keeps returning its cached MeasureSize (relayout == false in
+		// HorizontalWrapPanelMeasureOverrideProc), newly added children are
+		// never measured or arranged, and they pile up at 0,0 overlapping each
+		// other while the scrollbar still reflects only the OLD extent - the
+		// "batch loading stalls / view freezes until you jiggle the scale
+		// slider" symptom during folder loads.
+		internal void NotifyItemsChanged()
+		{
+			InvalidateLocations();
+		}
+
 
 	// --- Row lookup for "scroll by image" ------------------------
 	// ElementLocations holds one entry per laid-out element keyed by its row's Y.
@@ -243,64 +258,62 @@ namespace ImageViewer
 			// out of sync (the "transient overlaps"). Scrolling now only does
 			// the lazy load/unload bookkeeping below.
 
-			// Scan over all visible images
-			ElementLocations.EnumeratorRange = new TreeCollection.KeyInterval<double>(e.VerticalOffset, e.VerticalOffset + height);
-			ElementLocations.Traversal.TraversalMethod = TreeCollection.TraversalEnumeratorMethod.In;
-			ElementLocations.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Normal;
-			ElementLocations.Traversal.Traverse((t, n) =>
+			// Lazy load/unload bookkeeping.
+			//
+			// PERF: this runs on EVERY ScrollChanged event - during a fast
+			// wheel scroll or scrollbar drag it fires dozens of times per
+			// second. The old implementation walked the AVL tree with the
+			// bounded In-order enumerator for each scroll band and then did
+			// an O(n) List.Contains() per visible element. Two problems made
+			// scrolling stall on large folders:
+			//   1) the range-filtered recursive traversal visits/prunes whole
+			//      subtrees per node (and its range test is unreliable for
+			//      open-ended bands), and
+			//   2) Contains() on a list that can hold hundreds of tuples is
+			//      quadratic in the number of visible elements.
+			// Instead we do ONE plain iterative walk of the laid-out rows and
+			// classify each element directly against the viewport band. The
+			// walk reuses the same stack as the row cache and touches nothing
+			// related to layout invalidation.
+			double top = e.VerticalOffset;
+			double bottom = e.VerticalOffset + Math.Max(height, 0);
+
+			VisitAll(ElementLocations.Root, delegate(Tuple<Rect, UIElement> t)
 			{
-				var image = GetImage(t.Item2); if (image == null) return true;
+				var r = t.Item1;
+				// Rows are keyed by their shared Y and span the row Height, so
+				// the band test below covers both fully-visible rows and rows
+				// clipped by the top/bottom viewport edge.
+				bool isVisible = r.Y <= bottom && r.Y + r.Height >= top;
 
-				image.LoadImage();
-				if (!VisibleUIElements.Contains(t)) VisibleUIElements.Add(t);
-
+				if (isVisible)
+				{
+					var image = GetImage(t.Item2);
+					if (image == null) return true;
+					image.LoadImage();
+					if (!_visibleSet.Add(t)) VisibleUIElements.Add(t);
+				}
+				else if (_visibleSet.Remove(t))
+				{
+					// Was tracked and is now off-screen: unload it and drop it
+					// from the compacting list. (Tuples left in the HashSet but
+					// missing from the list are impossible: the only removal
+					// path takes both together.)
+					var image = GetImage(t.Item2);
+					if (image != null) image.UnLoadImage();
+					VisibleUIElements.Remove(t);
+				}
 				return true;
 			});
 
-
-			// Get previous images before first found(images not fully displayed)
-			ElementLocations.EnumeratorRange = new TreeCollection.KeyInterval<double>(0, e.VerticalOffset);
-			ElementLocations.Traversal.TraversalMethod = TreeCollection.TraversalEnumeratorMethod.In;
-			ElementLocations.Traversal.TraversalDir = TreeCollection.TraversalEnumeratorDir.Reverse;
-			ElementLocations.Traversal.Traverse((t, n) =>
-			{
-				var image = GetImage(t.Item2); if (image == null) return true;
-
-				if (t.Item1.Y + t.Item1.Height > e.VerticalOffset)
-				{
-					image.LoadImage();
-					if (!VisibleUIElements.Contains(t)) VisibleUIElements.Add(t);
-
-					return true;
-				} else
-					return false;
-			});
-
-
-
-			// Scan visible images and remove non-visible images
-			for (var i = 0; i < VisibleUIElements.Count; i++)
-			{
-				var t = VisibleUIElements[i];
-
-				var image = GetImage(t.Item2);
-				if (image == null) { VisibleUIElements.RemoveAt(i); continue; }
-				if (t.Item1.Y + t.Item1.Height < e.VerticalOffset || e.VerticalOffset + height < t.Item1.Y)
-				{
-					image.UnLoadImage();
-					VisibleUIElements.RemoveAt(i);
-					continue;
-				}
-
-			}
-
-			// Restore the "whole tree" state so any later traversal that
-			// expects to see every element is not silently clipped to the
-			// last scroll band used above.
-			ElementLocations.EnumeratorRange = null;
-
 			return;
 		}
+
+		// Fast-membership mirror of VisibleUIElements. The list keeps stable
+		// iteration order; the set makes Add/Contains/Remove O(1) instead of
+		// the O(n) linear scans the old code performed on every scroll event.
+		readonly HashSet<Tuple<Rect, UIElement>> _visibleSet
+			= new HashSet<Tuple<Rect, UIElement>>();
 
 		// Extract the LazyImage from a child element. Children are either the
 		// LazyImages themselves or ListViewItem containers wrapping them; both
