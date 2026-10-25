@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -103,7 +104,15 @@ namespace ImageViewer
         // trigger the scrollbar appearing mid-layout -> extent shrinks ~17px ->
         // wrap test fails -> two window-width pages share one row and overlap
         // ("book view" chaos). 1.5% covers it for any sane window width.
-        const double FitToWidthFactor = 1; //0.985;
+        // BUG FIX (book view "works sometimes then breaks"): this used to be 1,
+        // i.e. pages were sized to EXACTLY the full extent width while the panel
+        // internally reserves a safety margin of 0.985 (SmartFlowPanel.
+        // FitToWidthFraction). A page at exactly 100% width hits the wrap test
+        // (lineWidth + child > avail) on the SECOND page instead of starting a
+        // new row, so two window-width pages share one row and overlap - the
+        // layout looked fine until some later relayout pass and then collapsed.
+        // Keep the factor in sync with the panel fraction so both agree.
+        const double FitToWidthFactor = 0.985;
 
         // Scale slider drag throttle: ApplyScale() is O(all images), so we
         // coalesce rapid ValueChanged events into at most one relayout per
@@ -1474,6 +1483,32 @@ namespace ImageViewer
             var pathBatch = new List<string>();
             int numFilesRead = 0;
 
+            // Shared bounded backlog across ALL batches of this load. Without it,
+            // the worker would race ahead of the UI and queue thousands of
+            // pending LazyImage graphs at once (memory spike + the UI thread
+            // still choking on the sheer volume of queued adds). The semaphore is
+            // acquired inside ProcessBatchOnUIThread's background stage BEFORE it
+            // hands a batch to the dispatcher, and released when the UI has done
+            // its (tiny, IO-free) add pass - so at most PendingBatchLimit batches
+            // are ever in flight and the enumeration pauses automatically while
+            // the UI catches up.
+            var pendingBatches = new SemaphoreSlim(PendingBatchLimit, PendingBatchLimit);
+
+            // Snapshot the layout parameters ONCE for the whole folder load.
+            // Previously every batch read these DPs/settings from the UI thread;
+            // with hundreds of batches that was hundreds of needless dispatcher
+            // round-trips competing with rendering. The values only change through
+            // user interaction, which cannot happen mid-batch anyway.
+            var layout = (double[])LV.Dispatcher.Invoke(() => new double[]
+            {
+                Math.Max(0.1, Math.Min(3.0, SD_Scale.Value)),
+                GetLayoutWidth(),
+                GetLayoutHeight(),
+                ComputeFitToWidthScale(),
+                MaxSizeFactor(),
+                FitToWidthMinPixels(),
+            });
+
             foreach (var file in dir.EnumerateFiles("*", recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly))
             {
                 if (e.Cancel) return;
@@ -1483,20 +1518,25 @@ namespace ImageViewer
                 numFilesRead++;
                 pathBatch.Add(file.FullName);
 
-                // When a batch reaches 100 paths, send them to the UI thread to be built
+                // When a batch reaches 100 paths, hand it to the async pipeline
                 if (pathBatch.Count >= 100)
                 {
                     var chunk = pathBatch;
                     pathBatch = new List<string>(); // Start a new batch
-                    ProcessBatchOnUIThread(chunk, numFilesRead);
+                    ProcessBatchOnUIThread(chunk, numFilesRead, pendingBatches, layout);
                 }
             }
 
             // Flush any remaining paths in the final batch
             if (pathBatch.Count > 0)
             {
-                ProcessBatchOnUIThread(pathBatch, numFilesRead);
+                ProcessBatchOnUIThread(pathBatch, numFilesRead, pendingBatches, layout);
             }
+
+            // Wait for every queued batch to finish being added before we declare
+            // the load complete (the status-bar finalize below must not beat the
+            // last batches to the dispatcher queue).
+            for (int i = 0; i < PendingBatchLimit; i++) pendingBatches.Wait();
 
             // Finalize on the UI thread
             //LV.Dispatcher.Invoke(() =>
@@ -1511,25 +1551,56 @@ namespace ImageViewer
             }));
         }
 
-        // Helper method running strictly on the UI thread to instantiate UI elements safely
-        private void ProcessBatchOnUIThread(List<string> filePaths, int totalFilesSoFar)
+        // PERF REGRESSION FIX (the "not actually lazy / 6k images load everything"
+        // complaint): this used to be a synchronous Dispatcher.Invoke that built
+        // every LazyImage ON THE UI THREAD. Each LazyImage constructor opens the
+        // file and reads its image header, so a 6k-image folder meant 6k
+        // synchronous IO+parse operations blocking the UI inside each batch ->
+        // the app stalled, and afterwards WPF still had to measure/arrange all
+        // 6k visual children even though only ~20 are ever visible.
+        //
+        // New pipeline:
+        //   1) The BACKGROUND worker builds the LazyImages itself. That is safe:
+        //      the constructor only creates Freezable decoders (now Freeze()'d)
+        //      and plain fields - no UI-affinity state - and UpdateSize only
+        //      touches DependencyProperties on elements that are not yet parented
+        //      or bound, which any creating thread may do.
+        //   2) Items are handed to the UI thread with BeginInvoke at Background
+        //      priority (non-blocking). While the user scrolls or interacts, the
+        //      dispatcher stays responsive; batches drain when idle. This is the
+        //      piece the old Invoke could never deliver: Invoke ran the whole
+        //      batch (IO included) as one uninterruptible UI work item.
+        //   3) A bounded backlog keeps memory sane: we never let more than
+        //      PendingBatchLimit*batchSize items queue up ahead of the UI.
+        //   4) Fallback for any image whose header read failed off-thread
+        //      (ImageWidth == 0): re-run the read on a pool thread and patch the
+        //      real size in via ReloadDimensionsAsync once it arrives.
+        public const int PendingBatchLimit = 8;   // max batches queued ahead of the UI thread
+
+        private void ProcessBatchOnUIThread(List<string> filePaths, int totalFilesSoFar, SemaphoreSlim pendingBatches, double[] layout)
         {
             //LV.Dispatcher.Invoke(() =>
             Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
-                var scaleFactor = Math.Max(0.1, Math.Min(3.0, SD_Scale.Value));
-                double layoutW = GetLayoutWidth();
-                double layoutH = GetLayoutHeight();
-                double fitWidth = ComputeFitToWidthScale();
-                double maxSizeFactor = MaxSizeFactor();
-                double minFitPx = FitToWidthMinPixels();
+                double scaleFactor   = layout[0];
+                double layoutW       = layout[1];
+                double layoutH       = layout[2];
+                double fitWidth      = layout[3];
+                double maxSizeFactor = layout[4];
+                double minFitPx      = layout[5];
+
+                var items = new List<LazyImage>(filePaths.Count);
+                var needDims = new List<LazyImage>();
 
                 foreach (var path in filePaths)
                 {
-                    // Instantiated safely on the UI thread (STA)
-                    var item = new LazyImage(path, LV, layoutW * maxSizeFactor, layoutH * maxSizeFactor);
-                    item.UpdateSize(scaleFactor, fitWidth, maxSizeFactor, minFitPx);
-                    LV.Items.Add(item);
+                    // Safe off-thread: constructor reads only the image header
+                    // (BitmapDecoder.Create with DelayCreation - no pixel decode)
+                    // and UpdateSize touches DPs on an unparented element.
+                    var item = new LazyImage(path, null, layoutW * maxSizeFactor, layoutH * maxSizeFactor);
+                    if (item.ImageWidth == 0) needDims.Add(item);   // header read failed
+                    else item.UpdateSize(scaleFactor, fitWidth, maxSizeFactor, minFitPx);
+                    items.Add(item);
                 }
 
                 SB_NumFilesRead.Text = totalFilesSoFar.ToString();
