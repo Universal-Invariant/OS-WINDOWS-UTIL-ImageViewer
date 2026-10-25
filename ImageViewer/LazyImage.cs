@@ -53,6 +53,13 @@ namespace ImageViewer
         private double _lastMaxSizeFactor = 1.0;
         private double _lastMinFitWidthPx = 0;
 
+        // The (already clamped) maximum rendered width this image may ever
+        // occupy - set from the constructor's MaxWidth. Used by UpdateSize as
+        // a final safety clamp in fit-to-width mode so a page can never be
+        // wider than the wrap area even if the caller asks for a target width
+        // equal to (or above) the full extent width.
+        private double _maxLayoutWidth = 0;
+
         public Rect? LayoutRect { get; set; }
 
 
@@ -96,6 +103,26 @@ namespace ImageViewer
                 var c = targetWidth / w;
                 w *= c;
                 h *= c;
+
+                // SAFETY CLAMP (book view "sometimes works then breaks"): a
+                // page may never be wider than the layout area it wraps
+                // inside. If the fit target ever exceeds the available width -
+                // e.g. MainWindow's FitToWidthFactor is 1.0 so pages are sized
+                // to exactly the full extent width while WPF reserves no
+                // gutter (horizontal scrollbar Disabled) - floating point
+                // drift makes the wrap test (lineWidth + child > avail) fire
+                // on the SECOND page instead of starting a new row, and two
+                // window-width pages share one row and overlap: the book view
+                // looks fine until some later relayout pass and collapses into
+                // chaos after that ("works sometimes then doesn't"). Clamping
+                // here guarantees a page always fits its row regardless of who
+                // supplied the target width.
+                if (_maxLayoutWidth > 0 && w > _maxLayoutWidth)
+                {
+                    var cc = _maxLayoutWidth / w;
+                    w *= cc;
+                    h *= cc;
+                }
             }
 
             w *= scale;
@@ -168,6 +195,10 @@ namespace ImageViewer
 				var c = (ImageWidth > ImageHeight) ? (MaxWidth/ImageWidth) : (MaxHeight/ImageHeight);
 				ImageWidth = c*ImageWidth; ImageHeight = c*ImageHeight;
 			}
+
+            // Remember the clamped maximum rendered width for the fit-to-width
+            // safety clamp in UpdateSize (see _maxLayoutWidth).
+            if (MaxWidth > 0) _maxLayoutWidth = Math.Min(MaxWidth, double.MaxValue);
 
             // After computing ImageWidth/ImageHeight, save originals
             _originalWidth = ImageWidth;
