@@ -53,6 +53,9 @@ namespace ImageViewer
         private double _lastMaxSizeFactor = 1.0;
         private double _lastMinFitWidthPx = 0;
 
+        public Rect? LayoutRect { get; set; }
+
+
         // Scales the image and recomputes its layout size.
         //   scale           : user scale factor from the toolbar slider
         //   targetWidth     : > 0 enables "fit to width" (book format) mode -
@@ -174,8 +177,9 @@ namespace ImageViewer
             UpdateSize(1.0);
 			//this.Source = notloaded;
 			this.Source = null;
-			
-			//this.Stretch = System.Windows.Media.Stretch.Fill;
+            
+
+            //this.Stretch = System.Windows.Media.Stretch.Fill;
 			this.Stretch = System.Windows.Media.Stretch.UniformToFill;
 			Visibility = Visibility.Visible;
 
@@ -254,7 +258,12 @@ namespace ImageViewer
 		public override string ToString()
 		{
 			var rect = GetBoundingBox(this, this.VisualParent as Visual);
-			return rect.Format() + " - {" + ImageWidth + ", " + ImageHeight + "} - " + (IsLoaded ? "O" : "X") + " - " + Path.ToString();
+
+			string P = "";
+            if (LayoutRect.HasValue) {
+				P = $"({(Int32)Math.Ceiling(LayoutRect.Value.X)},{(Int32)Math.Ceiling(LayoutRect.Value.Y)}, {(Int32)Math.Ceiling(LayoutRect.Value.Width)}x{(Int32)Math.Ceiling(LayoutRect.Value.Height)}) - ";
+            }
+            return $"{P}{(Int32)Math.Ceiling(rect.Width)}x{(Int32)Math.Ceiling(rect.Height)} - {(Int32)Math.Ceiling(ImageWidth)}x{(Int32)Math.Ceiling(ImageHeight)} -- {Path}";
 		}
 
 		private static Rect GetBoundingBox(FrameworkElement child, Visual parent)
@@ -271,9 +280,9 @@ namespace ImageViewer
 		protected override void OnMouseEnter(MouseEventArgs e)
 		{ 
 			
-			base.OnMouseEnter(e);
-			(App.Current.MainWindow as MainWindow).SB_Info2.Text = Path;
-		}
+			base.OnMouseEnter(e);			
+            (App.Current.MainWindow as MainWindow).SB_Size.Text = ToString();
+        }
 
 
 	}

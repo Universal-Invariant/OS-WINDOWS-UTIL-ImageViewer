@@ -12,7 +12,7 @@ namespace ImageViewer.Properties {
     
     
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.14.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "18.11.0.0")]
     internal sealed partial class Settings : global::System.Configuration.ApplicationSettingsBase {
         
         private static Settings defaultInstance = ((Settings)(global::System.Configuration.ApplicationSettingsBase.Synchronized(new Settings())));
@@ -81,7 +81,7 @@ namespace ImageViewer.Properties {
                 this["RecentPaths"] = value;
             }
         }
-
+        
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("False")]
@@ -93,19 +93,7 @@ namespace ImageViewer.Properties {
                 this["FitToWidth"] = value;
             }
         }
-
-        [global::System.Configuration.UserScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("False")]
-        public bool ScrollByImage {
-            get {
-                return ((bool)(this["ScrollByImage"]));
-            }
-            set {
-                this["ScrollByImage"] = value;
-            }
-        }
-
+        
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("True")]
@@ -117,7 +105,7 @@ namespace ImageViewer.Properties {
                 this["ShowStatusBar"] = value;
             }
         }
-
+        
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("False")]
@@ -129,7 +117,7 @@ namespace ImageViewer.Properties {
                 this["AutoRefreshOnFolderChange"] = value;
             }
         }
-
+        
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("100")]
@@ -141,7 +129,7 @@ namespace ImageViewer.Properties {
                 this["MaxImageSizePercent"] = value;
             }
         }
-
+        
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("500")]
@@ -153,7 +141,19 @@ namespace ImageViewer.Properties {
                 this["FitToWidthMinImageWidth"] = value;
             }
         }
-
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool ScrollByImage {
+            get {
+                return ((bool)(this["ScrollByImage"]));
+            }
+            set {
+                this["ScrollByImage"] = value;
+            }
+        }
+        
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("10")]
@@ -189,7 +189,7 @@ namespace ImageViewer.Properties {
                 this["OpenOnDoubleClick"] = value;
             }
         }
-
+        
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("NaN")]
@@ -201,7 +201,7 @@ namespace ImageViewer.Properties {
                 this["WindowLeft"] = value;
             }
         }
-
+        
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("NaN")]
@@ -213,7 +213,7 @@ namespace ImageViewer.Properties {
                 this["WindowTop"] = value;
             }
         }
-
+        
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("NaN")]
@@ -225,7 +225,7 @@ namespace ImageViewer.Properties {
                 this["WindowWidth"] = value;
             }
         }
-
+        
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("NaN")]
@@ -237,13 +237,13 @@ namespace ImageViewer.Properties {
                 this["WindowHeight"] = value;
             }
         }
-
+        
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("0")]
-        public int WindowState {
+        [global::System.Configuration.DefaultSettingValueAttribute("Normal")]
+        public global::System.Windows.WindowState WindowState {
             get {
-                return ((int)(this["WindowState"]));
+                return ((global::System.Windows.WindowState)(this["WindowState"]));
             }
             set {
                 this["WindowState"] = value;

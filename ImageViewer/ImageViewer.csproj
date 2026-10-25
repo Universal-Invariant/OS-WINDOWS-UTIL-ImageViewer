@@ -189,7 +189,7 @@
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PreBuildEvent>cmd.exe taskkill /F /IM ImageViewer.exe &gt; nul 2&gt; nul</PreBuildEvent>
+    <PreBuildEvent>kill ImageViewer.exe</PreBuildEvent>
   </PropertyGroup>
   <PropertyGroup>
     <PostBuildEvent>

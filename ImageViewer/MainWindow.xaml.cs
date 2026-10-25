@@ -205,6 +205,13 @@ namespace ImageViewer
             Watcher.Renamed += FolderWatcher_Changed;
             Watcher.Error += (s, ev) => { try { Watcher.EnableRaisingEvents = true; } catch { }; };
 
+
+            // Show mouse Coords
+            MouseMove += (s, e) =>
+            {
+                Point M = Mouse.GetPosition(this);                
+                (App.Current.MainWindow as MainWindow).SB_Mouse.Text = $"({(Int32)Math.Ceiling(M.X)}, {(Int32)Math.Ceiling(M.Y)})";
+            };
             return;
 
         }
@@ -306,25 +313,8 @@ namespace ImageViewer
 
         // Saved window state from the last run; consumed once by
         // RestoreWindowState() in SourceInitialized. -999 = "nothing saved".
-        int _savedWindowState = -999;
+        System.Windows.WindowState _savedWindowState = System.Windows.WindowState.Normal;
 
-        // The native HWND is created here, *before* WPF applies the XAML
-        // default WindowState="Maximized" during Show(). Restoring geometry
-        // at this point means:
-        //  - a remembered Normal state actually sticks (the XAML Maximized
-        //    default would otherwise preempt a later restore), and
-        //  - the remembered Left/Top become the window's owning monitor, so
-        //    restoring down / maximizing lands on that monitor instead of
-        //    snapping back to the primary one.
-        // Hook the native window procedure so that maximizing a borderless
-        // window covers the whole monitor (no clipped edges / off-screen margins).
-        protected override void OnSourceInitialized(EventArgs e)
-        {
-            base.OnSourceInitialized(e);
-            var source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
-            source?.AddHook(WndProc);
-            RestoreWindowState();
-        }
 
         private void LoadSettings()
         {
@@ -354,6 +344,9 @@ namespace ImageViewer
 
             // Load layout settings
             TGB_FitToWidth.IsChecked = Settings.Default.FitToWidth;
+
+            RestoreWindowState();
+
 
             // Load the persistent "scroll by image" toolbar toggle
             TGB_ScrollByImage.IsChecked = Settings.Default.ScrollByImage;
@@ -437,8 +430,8 @@ namespace ImageViewer
         {
             try
             {
-                if (_savedWindowState == (int)System.Windows.WindowState.Normal ||
-                    _savedWindowState == (int)System.Windows.WindowState.Maximized)
+                if (_savedWindowState == System.Windows.WindowState.Normal ||
+                    _savedWindowState == System.Windows.WindowState.Maximized)
                     WindowState = (System.Windows.WindowState)_savedWindowState;
             }
             catch (Exception ex)
@@ -447,7 +440,7 @@ namespace ImageViewer
             }
             finally
             {
-                _savedWindowState = -999; // consume - don't fight later user actions
+                _savedWindowState = System.Windows.WindowState.Normal; 
             }
         }
 
@@ -480,7 +473,7 @@ namespace ImageViewer
                 Settings.Default.WindowTop = b.Y;
                 Settings.Default.WindowWidth = b.Width;
                 Settings.Default.WindowHeight = b.Height;
-                Settings.Default.WindowState = (int)WindowState;
+                Settings.Default.WindowState = WindowState;
             }
             catch (Exception ex)
             {
@@ -759,16 +752,6 @@ namespace ImageViewer
             this.InvalidateVisual();
             Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => { })).Wait();
             Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() => { })).Wait();
-        }
-
-        private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-        {
-            if (msg == WM_GETMINMAXINFO)
-            {
-                MinMaxInfoPatched.WMGetMinmaxInfo(hwnd, lParam);
-                handled = true;
-            }
-            return IntPtr.Zero;
         }
 
         // --- Layout helpers -------------------------------------------------
@@ -1438,7 +1421,7 @@ namespace ImageViewer
 
                 if (count++ > maxDelay)
                 {
-                    LV.Dispatcher.Invoke((Action<int>)((c) => { SB_Info1.Text = c.ToString(); }), numFilesRead);
+                    LV.Dispatcher.Invoke((Action<int>)((c) => { SB_NumFilesRead.Text = c.ToString(); }), numFilesRead);
 
 
                     Thread.Sleep(250);
@@ -1449,7 +1432,7 @@ namespace ImageViewer
             }
 
 
-            LV.Dispatcher.Invoke((Action)(() => { CB_Path.Foreground = Brushes.Green; CB_Path.FontWeight = FontWeights.Heavy; CB_Path.FontStyle = FontStyles.Oblique; SmartFlowPanel.Current.InvalidateLocations(); SB_Info1.Text = numFilesRead.ToString(); }), null);
+            LV.Dispatcher.Invoke((Action)(() => { CB_Path.Foreground = Brushes.Green; CB_Path.FontWeight = FontWeights.Heavy; CB_Path.FontStyle = FontStyles.Oblique; SmartFlowPanel.Current.InvalidateLocations(); SB_NumFilesRead.Text = numFilesRead.ToString(); }), null);
 
 
 

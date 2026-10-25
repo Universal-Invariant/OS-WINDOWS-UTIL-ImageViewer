@@ -1,11 +1,12 @@
+using Microsoft.VisualBasic.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -197,6 +198,8 @@ namespace ImageViewer
 		});
 		return found;
 	}
+
+
 
 	/// <summary>
 	/// Height of the row occupying viewport position yTop (the row whose TOP edge
@@ -493,12 +496,20 @@ namespace ImageViewer
 				return true;
 			});
 
-			foreach (var loc in ArrangeList)
+            foreach (var loc in ArrangeList)
 			{
 				var child = loc.Item2;
 				if (child != null)
+				{
 					child.Arrange(new Rect(loc.Item1.X, loc.Item1.Y, loc.Item1.Width, loc.Item1.Height));
-			}
+					// Cache the rect directly on the LazyImage for O(1) ToString() performance
+					var img = GetImage(child);
+					if (img != null)
+					{
+						img.LayoutRect = loc.Item1;
+					}
+				}
+            }
 
 			_invalidatedArrange = false;
 			return finalSize;

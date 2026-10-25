@@ -252,10 +252,13 @@
 
         <StatusBar Name="SB_Main" Grid.Row="2" Grid.Column="0" Background="#FF3E3E42" Foreground="#FFD0D0D0">
             <StatusBarItem>
-                <TextBlock Width="30" Name="SB_Info1"/>
+                <TextBlock Width="30" Name="SB_NumFilesRead"/>
             </StatusBarItem>
             <StatusBarItem>
-                <TextBlock Width="250" Name="SB_Info2"/>
+                <TextBlock Name="SB_Size" Margin="10,0,0,0"/>
+            </StatusBarItem>
+            <StatusBarItem>
+                <TextBlock Name="SB_Mouse" Margin="10,0,0,0" HorizontalAlignment="Right" />
             </StatusBarItem>
         </StatusBar>
     </Grid>
