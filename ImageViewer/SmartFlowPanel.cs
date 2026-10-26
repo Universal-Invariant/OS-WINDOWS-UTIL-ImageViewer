@@ -279,51 +279,68 @@ namespace ImageViewer
 				var image = GetImage(_visibleList[i].Item2);
 				if (image != null) image.UnLoadImage();
 			}
-			_visibleList.Clear();
-			_visibleSet.Clear();
+            _visibleList.Clear();
+            _visibleSet.Clear();
 
-				if (isVisible)
-				{
-					var image = GetImage(t.Item2);
-					if (image == null) return;
-					image.LoadImage();
-					if (!_visibleSet.Add(t)) VisibleUIElements.Add(t);
-				}
-				else if (_visibleSet.Remove(t))
-				{
-					AddVisible(n.Value);
-					if (n.Values != null)
-						foreach (var v in n.Values) AddVisible(v);
-				}
-				return;
-			});
+            // 2) Collect only the elements inside the viewport band.
+            CollectVisible(ElementLocations.Root, top, bottom);
 
-				// Prune: left subtree holds keys < y (relevant only when the band
-				// starts below y); right subtree holds keys > y (relevant only when
-				// the band ends above this row). Equal-Y duplicates never affect
-				// this: they live in node.Values, not in child subtrees.
-				if (n.Left != null && y > top) _visStack.Push(n.Left);
-				if (n.Right != null && y + h < bottom) _visStack.Push(n.Right);
-			}
-		}
+            return;
+        }
 
-		void AddVisible(Tuple<Rect, UIElement> t)
-		{
-			var image = GetImage(t.Item2);
-			if (image == null) return;
-			image.LoadImage();
-			if (_visibleSet.Add(t)) _visibleList.Add(t);
-		}
+        // Iterative pre-order walk with Y-band subtree pruning. Duplicate-Y rows
+        // live in node.Values and are all visited whenever the node's own Y
+        // intersects the band. Own stack so it interleaves safely with VisitAll
+        // (row cache / hit-testing).
+        readonly List<Tuple<Rect, UIElement>> _visibleList = new List<Tuple<Rect, UIElement>>(100);
+        readonly Stack<TreeCollection.INode<Tuple<Rect, UIElement>>> _visStack
+                = new Stack<TreeCollection.INode<Tuple<Rect, UIElement>>>();
 
-		// Fast-membership mirror of _visibleList: the list keeps stable order for
-		// the unload pass, the set dedupes adds in O(1).
-		readonly HashSet<Tuple<Rect, UIElement>> _visibleSet
-			= new HashSet<Tuple<Rect, UIElement>>();
+        void CollectVisible(TreeCollection.INode<Tuple<Rect, UIElement>> root, double top, double bottom)
+        {
+            _visStack.Clear();
+            if (root != null) _visStack.Push(root);
+            while (_visStack.Count > 0)
+            {
+                var n = _visStack.Pop();
+                double y = n.Value.Item1.Y;        // node key == row Y
+                double h = n.Value.Item1.Height;  // row height
 
-		// Extract the LazyImage from a child element. Children are either the
-		// LazyImages themselves or ListViewItem containers wrapping them; both
-		// forms are handled so nothing is silently skipped during layout.
-		static LazyImage GetImage(UIElement child)
+                // Row intersects the viewport band -> take Value AND all duplicate-Y
+                // siblings stored in node.Values.
+                if (y <= bottom && y + h >= top)
+                {
+                    AddVisible(n.Value);
+                    if (n.Values != null)
+                        foreach (var v in n.Values) AddVisible(v);
+                }
+
+                // Prune: left subtree holds keys < y (relevant only when the band
+                // starts below y); right subtree holds keys > y (relevant only when
+                // the band ends above this row). Equal-Y duplicates never affect
+                // this: they live in node.Values, not in child subtrees.
+                if (n.Left != null && y > top) _visStack.Push(n.Left);
+                if (n.Right != null && y + h < bottom) _visStack.Push(n.Right);
+            }
+        }
+
+        void AddVisible(Tuple<Rect, UIElement> t)
+        {
+            var image = GetImage(t.Item2);
+            if (image == null) return;
+            image.LoadImage();
+            if (_visibleSet.Add(t)) _visibleList.Add(t);
+        }
+
+        // Fast-membership mirror of _visibleList: the list keeps stable order for
+        // the unload pass, the set dedupes adds in O(1).
+        readonly HashSet<Tuple<Rect, UIElement>> _visibleSet
+                = new HashSet<Tuple<Rect, UIElement>>();
+
+        // Extract the LazyImage from a child element. Children are either the
+        // LazyImages themselves or ListViewItem containers wrapping them; both
+        // forms are handled so nothing is silently skipped during layout.
+        static LazyImage GetImage(UIElement child)
 		{
 			var img = child as LazyImage;
 			if (img != null) return img;
