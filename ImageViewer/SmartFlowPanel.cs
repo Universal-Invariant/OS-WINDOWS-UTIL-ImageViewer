@@ -241,7 +241,6 @@ namespace ImageViewer
 			if (newScrollOwner != null) newScrollOwner.ScrollChanged += new ScrollChangedEventHandler(ScrollOwner_ScrollChanged);
 		}
 
-		List<Tuple<Rect, UIElement>> VisibleUIElements = new List<Tuple<Rect, UIElement>>(100);
 		void ScrollOwner_ScrollChanged(object sender, ScrollChangedEventArgs e)
 		{
 
@@ -258,60 +257,83 @@ namespace ImageViewer
 			// out of sync (the "transient overlaps"). Scrolling now only does
 			// the lazy load/unload bookkeeping below.
 
-			// Lazy load/unload bookkeeping.
-			//
-			// PERF: this runs on EVERY ScrollChanged event - during a fast
-			// wheel scroll or scrollbar drag it fires dozens of times per
-			// second. The old implementation walked the AVL tree with the
-			// bounded In-order enumerator for each scroll band and then did
-			// an O(n) List.Contains() per visible element. Two problems made
-			// scrolling stall on large folders:
-			//   1) the range-filtered recursive traversal visits/prunes whole
-			//      subtrees per node (and its range test is unreliable for
-			//      open-ended bands), and
-			//   2) Contains() on a list that can hold hundreds of tuples is
-			//      quadratic in the number of visible elements.
-			// Instead we do ONE plain iterative walk of the laid-out rows and
-			// classify each element directly against the viewport band. The
-			// walk reuses the same stack as the row cache and touches nothing
-			// related to layout invalidation.
+// PERF REGRESSION FIX (the remaining "still stalls while scrolling" symptom):
+			// this used to call VisitAll(), a FULL O(n) walk of every laid-out element
+			// on EVERY ScrollChanged event - dozens of times per second during a wheel
+			// scroll or scrollbar drag. With 6k images that is hundreds of thousands of
+			// delegate invocations + band tests per gesture: UI-thread work that
+			// starves render and input. The AVL tree is keyed by row Y, so instead we:
+			//   1) unload the previously-visible elements (tracked in
+			//      _visibleList/_visibleSet - only ~tens of items), then
+			//   2) walk the tree ONCE with subtree pruning: BST ordering on Y means a
+			//      node's left subtree holds only smaller Ys and its right subtree only
+			//      larger ones, so whole subtrees outside the viewport band are
+			//      skipped. Cost drops to O(log n + k) where k = visible count -
+			//      independent of folder size.
 			double top = e.VerticalOffset;
 			double bottom = e.VerticalOffset + Math.Max(height, 0);
 
-			VisitAll(ElementLocations.Root, delegate(Tuple<Rect, UIElement> t)
+			// 1) Unload everything that was visible last tick.
+			for (int i = 0; i < _visibleList.Count; i++)
 			{
-				var r = t.Item1;
-				// Rows are keyed by their shared Y and span the row Height, so
-				// the band test below covers both fully-visible rows and rows
-				// clipped by the top/bottom viewport edge.
-				bool isVisible = r.Y <= bottom && r.Y + r.Height >= top;
+				var image = GetImage(_visibleList[i].Item2);
+				if (image != null) image.UnLoadImage();
+			}
+			_visibleList.Clear();
+			_visibleSet.Clear();
 
-				if (isVisible)
-				{
-					var image = GetImage(t.Item2);
-					if (image == null) return true;
-					image.LoadImage();
-					if (!_visibleSet.Add(t)) VisibleUIElements.Add(t);
-				}
-				else if (_visibleSet.Remove(t))
-				{
-					// Was tracked and is now off-screen: unload it and drop it
-					// from the compacting list. (Tuples left in the HashSet but
-					// missing from the list are impossible: the only removal
-					// path takes both together.)
-					var image = GetImage(t.Item2);
-					if (image != null) image.UnLoadImage();
-					VisibleUIElements.Remove(t);
-				}
-				return true;
-			});
+			// 2) Collect only the elements inside the viewport band.
+			CollectVisible(ElementLocations.Root, top, bottom);
 
 			return;
 		}
 
-		// Fast-membership mirror of VisibleUIElements. The list keeps stable
-		// iteration order; the set makes Add/Contains/Remove O(1) instead of
-		// the O(n) linear scans the old code performed on every scroll event.
+		// Iterative pre-order walk with Y-band subtree pruning. Duplicate-Y rows
+		// live in node.Values and are all visited whenever the node's own Y
+		// intersects the band. Own stack so it interleaves safely with VisitAll
+		// (row cache / hit-testing).
+		readonly List<Tuple<Rect, UIElement>> _visibleList = new List<Tuple<Rect, UIElement>>(100);
+		readonly Stack<TreeCollection.INode<Tuple<Rect, UIElement>>> _visStack
+			= new Stack<TreeCollection.INode<Tuple<Rect, UIElement>>>();
+
+		void CollectVisible(TreeCollection.INode<Tuple<Rect, UIElement>> root, double top, double bottom)
+		{
+			_visStack.Clear();
+			if (root != null) _visStack.Push(root);
+			while (_visStack.Count > 0)
+			{
+				var n = _visStack.Pop();
+				double y = n.Value.Item1.Y;        // node key == row Y
+				double h = n.Value.Item1.Height;  // row height
+
+				// Row intersects the viewport band -> take Value AND all duplicate-Y
+				// siblings stored in node.Values.
+				if (y <= bottom && y + h >= top)
+				{
+					AddVisible(n.Value);
+					if (n.Values != null)
+						foreach (var v in n.Values) AddVisible(v);
+				}
+
+				// Prune: left subtree holds keys < y (relevant only when the band
+				// starts below y); right subtree holds keys > y (relevant only when
+				// the band ends above this row). Equal-Y duplicates never affect
+				// this: they live in node.Values, not in child subtrees.
+				if (n.Left != null && y > top) _visStack.Push(n.Left);
+				if (n.Right != null && y + h < bottom) _visStack.Push(n.Right);
+			}
+		}
+
+		void AddVisible(Tuple<Rect, UIElement> t)
+		{
+			var image = GetImage(t.Item2);
+			if (image == null) return;
+			image.LoadImage();
+			if (_visibleSet.Add(t)) _visibleList.Add(t);
+		}
+
+		// Fast-membership mirror of _visibleList: the list keeps stable order for
+		// the unload pass, the set dedupes adds in O(1).
 		readonly HashSet<Tuple<Rect, UIElement>> _visibleSet
 			= new HashSet<Tuple<Rect, UIElement>>();
 

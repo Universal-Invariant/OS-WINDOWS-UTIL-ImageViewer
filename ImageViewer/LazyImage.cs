@@ -29,13 +29,18 @@ namespace ImageViewer
 	{
 		BitmapImage bm;
 		static BitmapImage notloaded = new BitmapImage(new Uri(@"/ImageViewer;component/Unloaded.png", UriKind.Relative));
-		
-		BitmapDecoder bitmap;
 
 		public new bool IsLoaded { get; set; }
 		public bool IsDrawn { get; set; }
 		public string Path = "";
 		ListView host = null;
+
+		// Set to true once the header read succeeded (real pixel dimensions
+		// captured). Replaces the old `bitmap != null` decoder reference: we no
+		// longer keep a BitmapDecoder alive per image (see constructor - it is
+		// thread-affine and its DpiX/DpiY getters throw cross-thread unless
+		// frozen, which silently zeroed every off-thread header read).
+		bool _headerReadOk = false;
 
 		public double ImageWidth = 0;
 		public double ImageHeight = 0;
@@ -185,24 +190,38 @@ namespace ImageViewer
 			//     opens the file and parses the IMAGE HEADER (pixel dims + DPI) - it
 			//     never decodes pixels. The heavy decode still happens only in
 			//     LoadImage(), i.e. when an image scrolls into view. Laziness kept.
-			//   * Freeze() makes the decoder cross-thread usable from the UI thread.
+			//   * We deliberately do NOT keep or freeze the decoder: WPF's
+			//     BitmapFrame.DpiX/DpiY getters throw "freeze required" once the
+			//     creating thread is gone, so freezing the decoder would make every
+			//     off-thread header read fail (catch => return) and leave ALL images
+			//     with zero size -> nothing ever renders ("no images shown").
+			//     Instead we extract width/height/DPI INSIDE the try block while the
+			//     decoder is still owned by this thread, then drop the reference.
 			// If ImageWidth stays 0 (corrupt/unsupported file), MainWindow falls back
 			// to a placeholder size on the UI thread and patches the real size later.
 			var imageStream = new Uri(path, UriKind.Absolute); 
-			BitmapDecoder dc = null;
+			double frameW = 0, frameH = 0, dpiX = 96, dpiY = 96;
 			try
 			{
-				dc = BitmapDecoder.Create(imageStream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+				BitmapDecoder dc = BitmapDecoder.Create(imageStream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
 				if (dc.Frames.Count == 0) return;
-				if (dc.CanFreeze) dc.Freeze();
+				var frame = dc.Frames[0];
+				frameW = frame.Width;
+				frameH = frame.Height;
+				dpiX = frame.DpiX;
+				dpiY = frame.DpiY;
+				// NOTE: no Freeze(). A frozen decoder CAN be referenced across
+				// threads, but DpiX/DpiY are not dependency properties and still
+				// demand thread affinity at read time - that was the bug that made
+				// every background header read silently fail.
 			} catch (Exception e)
 			{
 				return;
 			}
-			bitmap = dc;
-			
-			ImageWidth = dc.Frames[0].Width / 96.0 * dc.Frames[0].DpiX;
-            ImageHeight = dc.Frames[0].Height / 96.0 * dc.Frames[0].DpiY;
+			_headerReadOk = true;
+
+			ImageWidth = frameW / 96.0 * dpiX;
+            ImageHeight = frameH / 96.0 * dpiY;
 
 			if ((ImageWidth > MaxWidth && MaxWidth > 0) || (ImageHeight > MaxHeight && MaxHeight > 0))
 			{
@@ -251,7 +270,11 @@ namespace ImageViewer
 			bm.EndInit();
 			bm.Freeze();
 			 */
-			if (Source == null && bitmap != null)
+			// Guard on the header-read flag, NOT a decoder reference: keeping a
+			// thread-affine BitmapDecoder per image was both a memory leak and a
+			// cross-thread crash source. The actual decode happens here (only when
+			// an image scrolls into view) via a fresh BitmapImage.
+			if (Source == null && _headerReadOk)
 			{
 				var bm = new BitmapImage();
 				bm.BeginInit();
