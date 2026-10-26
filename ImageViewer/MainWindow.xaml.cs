@@ -174,7 +174,11 @@ namespace ImageViewer
             // Expose the ListView to the flow panel so LazyImage instances
             // created off-thread (batch loader passes host=null) can still find
             // the UI Dispatcher when deferring bitmap loads out of layout passes.
-            SmartFlowPanel.Current.LVHost = LV;
+            // SmartFlowPanel.Current is assigned in the panel's constructor, but
+            // guard against it being null (e.g., if the XAML tree changes) so a
+            // missing panel never crashes MainWindow construction.
+            if (SmartFlowPanel.Current != null)
+                SmartFlowPanel.Current.LVHost = LV;
 
             Current = this;
 
@@ -1608,8 +1612,12 @@ namespace ImageViewer
                 }
 
                 // ---- UI stage: pure add pass, no IO, non-blocking handoff ----
+                // This lambda already runs on the UI thread (we were handed off
+                // via Dispatcher.BeginInvoke above), so add directly. The old
+                // code called "ui.BeginInvoke(...)" where "ui" was never defined
+                // and would not compile.
                 pendingBatches.Wait();
-                ui.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                try
                 {
                     foreach (var item in items)
                     {
@@ -1622,13 +1630,17 @@ namespace ImageViewer
                     // Tell the flow panel new children exist so it relayouts once per
                     // batch instead of stalling until something external dirties it.
                     SmartFlowPanel.Current?.NotifyItemsChanged();
-
+                }
+                finally
+                {
+                    // Always release, even if the UI stage throws, otherwise the
+                    // producer loop blocks forever in Wait() and loading stalls.
                     pendingBatches.Release();
+                }
 
-                    // Patch placeholder-sized images without blocking the UI.
-                    foreach (var item in needDims)
-                        ReloadDimensionsAsync(item, scaleFactor, fitWidth, maxSizeFactor, minFitPx);
-                }));
+                // Patch placeholder-sized images without blocking the UI.
+                foreach (var item in needDims)
+                    ReloadDimensionsAsync(item, scaleFactor, fitWidth, maxSizeFactor, minFitPx);
             });
         }
 
