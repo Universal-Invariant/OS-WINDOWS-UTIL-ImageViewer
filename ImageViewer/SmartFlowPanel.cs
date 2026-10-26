@@ -311,6 +311,20 @@ public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArra
 		// live in node.Values and are all visited whenever the node's own Y
 		// intersects the band. Own stack so it interleaves safely with VisitAll
 		// (row cache / hit-testing).
+		//
+		// NOTE: a node's Left/Right subtrees CAN hold keys equal to the node's
+		// own key. AVLTree.Add descends with strict < / > comparisons, so when a
+		// duplicate key exists somewhere below, the new value is inserted as a
+		// NEW NODE instead of joining the landing node's Values list; rebalancing
+		// rotations then re-home nodes freely. The pruning tests below must
+		// therefore stay STRICT (`y > top` / `y + h < bottom`): relaxing them to
+		// >= / <= would push every equal-key subtree in the whole tree on each
+		// tick - the ENTIRE folder gets classified as visible and LoadImage()'d
+		// ("tries to load all images instead of just the visible subset") and the
+		// resulting unload/reload churn blanks the window ("images not showing").
+		// With the strict tests an equal-key subtree inside the band is still
+		// fully collected (every visited node re-pushes its children while its
+		// key is strictly inside), and nothing outside the band leaks in.
 		readonly Stack<TreeCollection.INode<Tuple<Rect, UIElement>>> _visStack
 			= new Stack<TreeCollection.INode<Tuple<Rect, UIElement>>>();
 
@@ -332,6 +346,20 @@ public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArra
 		// reference identity, immune to Rect churn from row shifts.
 		void CollectVisibleIncremental(double top, double bottom)
 		{
+			// Degenerate band guard: before the window is first shown (or during a
+			// transient ScrollChanged with an unset viewport) ViewportHeight can be
+			// 0, making the band [offset, offset] a single line. Every row at that
+			// Y intersects it and, worse, the strict pruning tests collapse to
+			// `y > top` == false for equal-key subtrees... but rows strictly above
+			// still get collected via node.Values, so the "visible" set becomes a
+			// huge spurious band; each relayout then diffs prev-vs-new across the
+			// whole folder -> mass UnLoadImage (blank window) followed by thousands
+			// of deferred LoadImage decodes ("tries to load all images", "images
+			// not showing"). A zero-height viewport means NOTHING can be seen, so
+			// skip the sweep entirely; the first real scroll event (or the render
+			// pass that follows layout) re-runs this with a valid viewport.
+			if (bottom <= top) return;
+
 			// Build the NEW visible set without touching any image.
 			_newVisible.Clear();
 			_newSet.Clear();
@@ -389,10 +417,13 @@ public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArra
 						foreach (var v in n.Values) AddToNew(v);
 				}
 
-				// Prune: left subtree holds keys < y (relevant only when the band
-				// starts below y); right subtree holds keys > y (relevant only when
-				// the band ends above this row). Equal-Y duplicates never affect
-				// this: they live in node.Values, not in child subtrees.
+				// Prune: left subtree holds keys <= y, right subtree keys >= y
+				// (equal-key nodes CAN end up in child subtrees after rotations -
+				// see the note above _visStack). The strict tests keep every
+				// equal-key subtree that lies INSIDE the band (each visited node
+				// re-pushes its children while its key is strictly within the
+				// band) while excluding everything outside it. Relaxing these to
+				// >= / <= made the walk collect the whole folder per tick.
 				if (n.Left != null && y > top) _visStack.Push(n.Left);
 				if (n.Right != null && y + h < bottom) _visStack.Push(n.Right);
 			}

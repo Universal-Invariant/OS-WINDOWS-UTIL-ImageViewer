@@ -207,21 +207,44 @@ namespace ImageViewer
 			// to a placeholder size on the UI thread and patches the real size later.
 			var imageStream = new Uri(path, UriKind.Absolute); 
 			double frameW = 0, frameH = 0, dpiX = 96, dpiY = 96;
+			bool headerOk = false;
 			try
 			{
 				BitmapDecoder dc = BitmapDecoder.Create(imageStream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
-				if (dc.Frames.Count == 0) return;
-				var frame = dc.Frames[0];
-				frameW = frame.Width;
-				frameH = frame.Height;
-				dpiX = frame.DpiX;
-				dpiY = frame.DpiY;
+				if (dc.Frames.Count > 0)
+				{
+					var frame = dc.Frames[0];
+					frameW = frame.Width;
+					frameH = frame.Height;
+					dpiX = frame.DpiX;
+					dpiY = frame.DpiY;
+					headerOk = true;
+				}
 				// NOTE: no Freeze(). A frozen decoder CAN be referenced across
 				// threads, but DpiX/DpiY are not dependency properties and still
 				// demand thread affinity at read time - that was the bug that made
 				// every background header read silently fail.
 			} catch (Exception e)
 			{
+				// REGRESSION FIX ("images not showing at all"): this used to be
+				// `return;` INSIDE THE CONSTRUCTOR, which abandoned a half-built
+				// element whenever the header could not be parsed - skipping the
+				// initial UpdateSize(), SetPlaceholder(), Stretch and Visibility
+				// below. MainWindow then added those zero-size, Source-less shells
+				// to the ListView, so folders rendered as invisible nothing. The
+				// constructor must ALWAYS complete; a failed header read simply
+				// leaves ImageWidth == 0 and MainWindow assigns a placeholder size
+				// + patches the real dimensions later (ReloadDimensionsAsync).
+				headerOk = false;
+			}
+			if (!headerOk)
+			{
+				// Leave ImageWidth/ImageHeight at 0 (MainWindow detects this), but
+				// still finish constructing a valid visual with a placeholder so the
+				// slot renders and can be decoded once its real size is patched in.
+				SetPlaceholder();
+				this.Stretch = System.Windows.Media.Stretch.UniformToFill;
+				Visibility = Visibility.Visible;
 				return;
 			}
 			_headerReadOk = true;
