@@ -245,8 +245,12 @@ namespace ImageViewer
 
             // Apply initial size (scale = 1.0)
             UpdateSize(1.0);
-			//this.Source = notloaded;
-			this.Source = null;
+			// FLICKER FIX: start with a shared 1x1 transparent placeholder rather
+			// than null. The slot renders immediately without touching the disk
+			// (laziness preserved - the real decode still happens only in
+			// LoadImage() when the image enters the viewport), and WPF never has
+			// to swap between "no visual" and "bitmap" states during load churn.
+			SetPlaceholder();
             
 
             //this.Stretch = System.Windows.Media.Stretch.Fill;
@@ -260,6 +264,29 @@ namespace ImageViewer
 		}
 
 		static LazyImage() { notloaded.Freeze(); }
+
+		// Cheap shared placeholder: a frozen 1x1 fully-transparent bitmap. One
+		// allocation for the whole app; assigning it as Image.Source costs
+		// nothing and triggers no decode.
+		static readonly BitmapSource _placeholderBmp = CreatePlaceholder();
+		static BitmapSource CreatePlaceholder()
+		{
+			var pb = new WriteableBitmap(1, 1, 96, 96, PixelFormats.Bgra32, null);
+			pb.Lock();
+			pb.WritePixels(new Int32Rect(0, 0, 1, 1), new byte[4], 4, 0);
+			pb.Unlock();
+			pb.Freeze();
+			return pb;
+		}
+
+		public void SetPlaceholder()
+		{
+			if (Source == null)
+			{
+				Source = _placeholderBmp;
+				_isPlaceholder = true;
+			}
+		}
 
 
 		
@@ -289,16 +316,20 @@ namespace ImageViewer
 			// every LazyImage occupies its slot but paints NOTHING. Defer the
 			// Source assignment to the next dispatcher turn (after layout completes)
 			// at Input priority so the pixels still arrive within milliseconds.
-			if (Source == null && _headerReadOk)
+			if ((Source == null || _isPlaceholder) && _headerReadOk && !_loadPending)
 			{
+				_loadPending = true;
 				var host = LVHost ?? SmartFlowPanel.Current?.LVHost;
 				var dispatcher = host != null ? host.Dispatcher : Application.Current?.Dispatcher;
 
 				Action apply = () =>
 				{
+					_loadPending = false;
 					// Re-check laziness flags: the image may have been unloaded
-					// (scrolled away) between scheduling and execution.
-					if (Source != null || !_headerReadOk) return;
+					// (scrolled away) between scheduling and execution - in that
+					// case the pending load must NOT resurrect the bitmap.
+					if (!_shouldBeVisible) return;
+					if ((Source != null && !_isPlaceholder) || !_headerReadOk) return;
 					var bm = new BitmapImage();
 					bm.BeginInit();
 					bm.CacheOption = BitmapCacheOption.None;
@@ -307,21 +338,48 @@ namespace ImageViewer
 					bm.Freeze();
 
 					Source = bm;
+					_isPlaceholder = false;
 					IsLoaded = true;
 				};
 
 				if (dispatcher != null && !dispatcher.HasShutdownStarted)
-					dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, apply);
+					dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, apply);
 				else
 					apply();   // designer / no dispatcher context: run inline
 			}
 		}
 
+		// FLICKER FIX: the scroll handler unloads every tracked element on each
+		// ScrollChanged tick and reloads them right after (the visible set is
+		// identical between ticks while a folder is loading). With Source going
+		// null -> real bitmap on every tick, images blanked and repainted several
+		// times per second ("window cleared then redrawn"). The flag below makes
+		// the Load/UnLoad pair idempotent for the unload side: UnLoadImage only
+		// truly blanks the image when the panel says it LEFT the viewport band;
+		// re-entering the band while the bitmap is still loaded is a no-op, and
+		// an element that leaves the band can never have a queued load resurrect
+		// its bitmap afterwards.
+		bool _isPlaceholder = false;   // Source holds the tiny 1x1 placeholder
+		bool _shouldBeVisible = true;  // panel considers us inside the band
+		bool _loadPending = false;     // a deferred Source assignment is queued
+
 		public void UnLoadImage()
 		{
-			Source = null;
-			IsLoaded = false;
-
+			// Mark invisible FIRST so any deferred load still sitting on the
+			// dispatcher queue aborts when its callback runs (apply() checks
+			// _shouldBeVisible before touching Source).
+			bool wasVisible = _shouldBeVisible;
+			_shouldBeVisible = false;
+			// Only actually blank the image if it was considered visible going
+			// in. A duplicate unload (element tracked across two passes without
+			// an intervening load) must NOT clear a bitmap that is legitimately
+			// on screen - that spurious blank-and-redecode was the flicker.
+			if (wasVisible)
+			{
+				Source = null;
+				_isPlaceholder = false;
+				IsLoaded = false;
+			}
 		}
 		
 

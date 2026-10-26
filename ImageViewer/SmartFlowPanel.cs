@@ -1,4 +1,4 @@
-using Microsoft.VisualBasic.Logging;
+﻿using Microsoft.VisualBasic.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -65,7 +65,13 @@ namespace ImageViewer
 
                 public SmartFlowPanel() { Type = FlowPanelType.HorizontalWrapPanel; ElementLocations.ItemKey = (t) => { return t.Item1.Y; }; Current = this; }
 
-		public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArrange = true; InvalidateRowCache(); InvalidateMeasure(); InvalidateVisual(); } bool _invalidatedMeasure = true; bool _invalidatedArrange = true;
+		// FLICKER FIX: deliberately does NOT call InvalidateVisual(). Measure+Arrange
+// are re-run via InvalidateMeasure() when the layout pass is dirty; the extra
+// InvalidateVisual forced a redundant full draw of the panel on top of every
+// relayout - during folder loads (one relayout per batch, i.e. every few
+// hundred ms) that double-invalidation was one source of the periodic
+// "clear then redraw" flicker.
+public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArrange = true; InvalidateRowCache(); InvalidateMeasure(); } bool _invalidatedMeasure = true; bool _invalidatedArrange = true;
 
 		// Called by MainWindow when items are appended to (or cleared from)
 		// the ListView that hosts this panel. The flow layout is NOT incremental:
@@ -279,24 +285,24 @@ namespace ImageViewer
 			double top = e.VerticalOffset;
 			double bottom = e.VerticalOffset + Math.Max(height, 0);
 
-			// 1) Unload everything that was visible last tick.
-			// NOTE: we must NOT clear _visibleSet here. The deferred Source
-			// assignment inside LazyImage.LoadImage() may still be pending on the
-			// dispatcher for elements leaving the viewport; keeping the set as a
-			// membership mirror of the list guarantees every tracked element gets
-			// exactly one UnLoadImage() and can never leak a loaded bitmap.
-			for (int i = 0; i < _visibleList.Count; i++)
-			{
-				var image = GetImage(_visibleList[i].Item2);
-				if (image != null) image.UnLoadImage();
-			}
-			_visibleList.Clear();
-			_visibleSet.Clear();
-
-			// 2) Collect only the elements inside the viewport band with a single
-			// iterative pre-order walk of the AVL tree, pruning whole subtrees
-			// outside [top, bottom] using BST ordering on the row-Y key.
-			CollectVisible(ElementLocations.Root, top, bottom);
+			// FLICKER FIX: the old code unloaded EVERY tracked element and then
+			// reloaded all of them on every ScrollChanged tick. While a folder is
+			// loading, ScrollChanged fires once per batch relayout with an
+			// UNCHANGED viewport, so every visible image went
+			// Source=null -> placeholder -> decoded bitmap several times per
+			// second - exactly the periodic "images disappear then reappear"
+			// flicker. Now we compute the new visible set first (pure geometry,
+			// no side effects) and only touch elements whose membership actually
+			// changed:
+			//   * still visible -> left completely alone (no unload/reload),
+			//   * entered band  -> LoadImage(),
+			//   * left band     -> UnLoadImage().
+			// Computing-before-unloading also kills the old race where a deferred
+			// Source assignment queued by the previous tick's LoadImage landed
+			// AFTER this tick's UnLoadImage and resurrected a scrolled-away
+			// bitmap: UnLoadImage marks the element invisible and LazyImage's
+			// pending apply() checks that flag before touching Source.
+			CollectVisibleIncremental(top, bottom);
 
 			return;
 		}
@@ -309,7 +315,63 @@ namespace ImageViewer
 		readonly Stack<TreeCollection.INode<Tuple<Rect, UIElement>>> _visStack
 			= new Stack<TreeCollection.INode<Tuple<Rect, UIElement>>>();
 
-		void CollectVisible(TreeCollection.INode<Tuple<Rect, UIElement>> root, double top, double bottom)
+		// Incremental visibility update (FLICKER FIX). Diffs the freshly
+		// collected band against the previous snapshot and only loads/unloads
+		// elements whose membership changed. Double-buffered so no per-tick
+		// allocations in steady state.
+		void CollectVisibleIncremental(double top, double bottom)
+		{
+			// Build the NEW visible set without touching any image.
+			_newVisible.Clear();
+			_newSet.Clear();
+			WalkBand(ElementLocations.Root, top, bottom);
+
+			// Left the band -> unload. (UnLoadImage is now idempotent-safe: it
+			// marks the element invisible so a queued deferred load cannot
+			// resurrect its bitmap.)
+			for (int i = 0; i < _prevVisible.Count; i++)
+			{
+				var t = _prevVisible[i];
+				if (!_newSet.Contains(t))
+				{
+					var image = GetImage(t.Item2);
+					if (image != null) image.UnLoadImage();
+				}
+			}
+
+			// Entered the band -> load.
+			for (int i = 0; i < _newVisible.Count; i++)
+			{
+				var t = _newVisible[i];
+				if (!_prevSet.Contains(t))
+				{
+					var image = GetImage(t.Item2);
+					if (image != null) image.LoadImage();
+				}
+			}
+
+			// Promote the snapshot.
+			var tmpL = _prevVisible; var tmpS = _prevSet;
+			_prevVisible = _newVisible; _prevSet = _newSet;
+			_newVisible = tmpL; _newSet = tmpS;
+
+			// Keep the legacy members mirrored for any external reader.
+			_visibleList.Clear();
+			_visibleSet.Clear();
+			for (int i = 0; i < _prevVisible.Count; i++)
+			{
+				_visibleList.Add(_prevVisible[i]);
+				_visibleSet.Add(_prevVisible[i]);
+			}
+		}
+
+		// Pure geometry walk: collects every element whose ROW intersects the
+		// viewport band into _newVisible/_newSet WITHOUT loading or unloading.
+		// Iterative pre-order with subtree pruning: the AVL tree is keyed by
+		// row Y, so a node's left subtree holds only smaller Ys and its right
+		// subtree only larger ones - whole subtrees outside the band are
+		// skipped. Cost O(log n + k), independent of folder size.
+		void WalkBand(TreeCollection.INode<Tuple<Rect, UIElement>> root, double top, double bottom)
 		{
 			_visStack.Clear();
 			if (root != null) _visStack.Push(root);
@@ -319,13 +381,13 @@ namespace ImageViewer
 				double y = n.Value.Item1.Y;        // node key == row Y
 				double h = n.Value.Item1.Height;   // row height
 
-				// Row intersects the viewport band -> take Value AND all duplicate-Y
+				// Row intersects the band -> take Value AND all duplicate-Y
 				// siblings stored in node.Values.
 				if (y <= bottom && y + h >= top)
 				{
-					AddVisible(n.Value);
+					AddToNew(n.Value);
 					if (n.Values != null)
-						foreach (var v in n.Values) AddVisible(v);
+						foreach (var v in n.Values) AddToNew(v);
 				}
 
 				// Prune: left subtree holds keys < y (relevant only when the band
@@ -337,16 +399,30 @@ namespace ImageViewer
 			}
 		}
 
-		void AddVisible(Tuple<Rect, UIElement> t)
+		void AddToNew(Tuple<Rect, UIElement> t)
 		{
-			var image = GetImage(t.Item2);
-			if (image == null) return;
-			image.LoadImage();
-			if (_visibleSet.Add(t)) _visibleList.Add(t);
+			if (_newSet.Add(t)) _newVisible.Add(t);
 		}
 
-		// Fast-membership mirror of _visibleList: the list keeps stable order for
-		// the unload pass, the set dedupes adds in O(1).
+		// Double-buffered snapshots for the incremental diff.
+		List<Tuple<Rect, UIElement>> _newVisible = new List<Tuple<Rect, UIElement>>(100);
+		HashSet<Tuple<Rect, UIElement>> _newSet = new HashSet<Tuple<Rect, UIElement>>();
+		List<Tuple<Rect, UIElement>> _prevVisible = new List<Tuple<Rect, UIElement>>(100);
+		HashSet<Tuple<Rect, UIElement>> _prevSet = new HashSet<Tuple<Rect, UIElement>>();
+
+		void ResetVisibilityTracking()
+		{
+			// Called when the element-location tree is rebuilt from scratch
+			// (Items.Clear / folder switch): the previous snapshot refers to
+			// tuples that no longer exist, so both buffers must be emptied or
+			// stale entries would linger in the diff forever.
+			_newVisible.Clear(); _newSet.Clear();
+			_prevVisible.Clear(); _prevSet.Clear();
+			_visibleList.Clear(); _visibleSet.Clear();
+		}
+
+		// Fast-membership mirror of _visibleList (kept in sync by the paths
+		// above; used by VisitAll-based helpers elsewhere).
 		readonly HashSet<Tuple<Rect, UIElement>> _visibleSet
 			= new HashSet<Tuple<Rect, UIElement>>();
 
@@ -414,6 +490,8 @@ namespace ImageViewer
 
 				ElementLocations.Clear();
 				InvalidateRowCache();
+			// Folder switched (or full rebuild): drop stale visibility snapshots.
+			ResetVisibilityTracking();
 
 				var currentLineHeight = 0.0;
 				var currentLineWidth = 0.0;

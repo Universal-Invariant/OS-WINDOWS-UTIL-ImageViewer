@@ -1624,7 +1624,15 @@ namespace ImageViewer
                     // (BitmapDecoder.Create with DelayCreation - no pixel decode)
                     // and UpdateSize touches DPs on an unparented element.
                     var item = new LazyImage(path, null, layoutW * maxSizeFactor, layoutH * maxSizeFactor);
-                    if (item.ImageWidth == 0) needDims.Add(item);   // header read failed
+                    if (item.ImageWidth == 0)
+                    {
+                        // Header read failed (corrupt/unsupported file). The
+                        // constructor returned BEFORE assigning any Source, so
+                        // give it the placeholder explicitly; otherwise the
+                        // element occupies a slot but has no visual at all.
+                        item.SetPlaceholder();
+                        needDims.Add(item);
+                    }
                     else item.UpdateSize(scaleFactor, fitWidth, maxSizeFactor, minFitPx);
                     items.Add(item);
                 }
