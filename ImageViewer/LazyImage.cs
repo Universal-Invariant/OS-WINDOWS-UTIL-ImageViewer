@@ -35,6 +35,12 @@ namespace ImageViewer
 		public string Path = "";
 		ListView host = null;
 
+		// The ListView this image is displayed in (set by MainWindow when the
+		// batch is handed to the UI thread). Used by LoadImage() to find the
+		// correct Dispatcher for deferring Source assignment out of WPF's
+		// layout pass. Falls back to SmartFlowPanel.Current.LVHost when null.
+		public ListView LVHost { get; set; }
+
 		// Set to true once the header read succeeded (real pixel dimensions
 		// captured). Replaces the old `bitmap != null` decoder reference: we no
 		// longer keep a BitmapDecoder alive per image (see constructor - it is
@@ -274,18 +280,40 @@ namespace ImageViewer
 			// thread-affine BitmapDecoder per image was both a memory leak and a
 			// cross-thread crash source. The actual decode happens here (only when
 			// an image scrolls into view) via a fresh BitmapImage.
+			//
+			// CRITICAL FIX ("no images shown"): LoadImage() is invoked from the
+			// ScrollChanged handler while WPF is inside its layout pass (Measure).
+			// Assigning Source there re-triggers MeasureAsync on this element in
+			// the middle of the ongoing pass - WPF swallows that silently, so the
+			// Image keeps rendering with a Source that was never measured/arranged:
+			// every LazyImage occupies its slot but paints NOTHING. Defer the
+			// Source assignment to the next dispatcher turn (after layout completes)
+			// at Input priority so the pixels still arrive within milliseconds.
 			if (Source == null && _headerReadOk)
 			{
-				var bm = new BitmapImage();
-				bm.BeginInit();
-				bm.CacheOption = BitmapCacheOption.None;
-				bm.UriSource = new Uri(Path, UriKind.Absolute);
-				bm.EndInit();
-				bm.Freeze();
-				
-				Source = bm;
-				//this.InvalidateVisual();
-				IsLoaded = true;
+				var host = LVHost ?? SmartFlowPanel.Current?.LVHost;
+				var dispatcher = host != null ? host.Dispatcher : Application.Current?.Dispatcher;
+
+				Action apply = () =>
+				{
+					// Re-check laziness flags: the image may have been unloaded
+					// (scrolled away) between scheduling and execution.
+					if (Source != null || !_headerReadOk) return;
+					var bm = new BitmapImage();
+					bm.BeginInit();
+					bm.CacheOption = BitmapCacheOption.None;
+					bm.UriSource = new Uri(Path, UriKind.Absolute);
+					bm.EndInit();
+					bm.Freeze();
+
+					Source = bm;
+					IsLoaded = true;
+				};
+
+				if (dispatcher != null && !dispatcher.HasShutdownStarted)
+					dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, apply);
+				else
+					apply();   // designer / no dispatcher context: run inline
 			}
 		}
 

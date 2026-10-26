@@ -57,7 +57,13 @@ namespace ImageViewer
 		public bool InvalidateMeasures = false;
 
 		public static SmartFlowPanel Current = null;
-		public SmartFlowPanel() { Type = FlowPanelType.HorizontalWrapPanel; ElementLocations.ItemKey = (t) => { return t.Item1.Y; }; Current = this; }
+
+                // The ListView whose ItemsPanel is this panel (assigned by
+                // MainWindow after InitializeComponent). LazyImage.LoadImage uses
+                // it as the dispatcher source when its own LVHost is unset.
+                public ListView LVHost;
+
+                public SmartFlowPanel() { Type = FlowPanelType.HorizontalWrapPanel; ElementLocations.ItemKey = (t) => { return t.Item1.Y; }; Current = this; }
 
 		public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArrange = true; InvalidateRowCache(); InvalidateMeasure(); InvalidateVisual(); } bool _invalidatedMeasure = true; bool _invalidatedArrange = true;
 

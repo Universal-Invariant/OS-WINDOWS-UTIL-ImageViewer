@@ -171,6 +171,10 @@ namespace ImageViewer
         public MainWindow()
         {
             InitializeComponent();
+            // Expose the ListView to the flow panel so LazyImage instances
+            // created off-thread (batch loader passes host=null) can still find
+            // the UI Dispatcher when deferring bitmap loads out of layout passes.
+            SmartFlowPanel.Current.LVHost = LV;
 
             Current = this;
 
@@ -1603,8 +1607,59 @@ namespace ImageViewer
                     items.Add(item);
                 }
 
-                SB_NumFilesRead.Text = totalFilesSoFar.ToString();
-            }));
+                // ---- UI stage: pure add pass, no IO, non-blocking handoff ----
+                pendingBatches.Wait();
+                ui.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                {
+                    foreach (var item in items)
+                    {
+                        item.LVHost = LV;   // dispatcher source for deferred LoadImage
+                        LV.Items.Add(item);
+                    }
+
+                    SB_NumFilesRead.Text = totalFilesSoFar.ToString();
+
+                    // Tell the flow panel new children exist so it relayouts once per
+                    // batch instead of stalling until something external dirties it.
+                    SmartFlowPanel.Current?.NotifyItemsChanged();
+
+                    pendingBatches.Release();
+
+                    // Patch placeholder-sized images without blocking the UI.
+                    foreach (var item in needDims)
+                        ReloadDimensionsAsync(item, scaleFactor, fitWidth, maxSizeFactor, minFitPx);
+                }));
+            });
+        }
+
+        // Re-reads a failed header read on a pool thread, then applies the true
+        // size on the UI thread. Only runs for corrupt/unsupported files, so the
+        // cost is negligible in the common case.
+        private void ReloadDimensionsAsync(LazyImage item, double scale, double fitWidth, double maxSizeFactor, double minFitPx)
+        {
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    using (var fs = new FileStream(item.Path, FileMode.Open, FileAccess.Read))
+                    {
+                        var dc = BitmapDecoder.Create(fs, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+                        if (dc.Frames.Count > 0)
+                        {
+                            var f = dc.Frames[0];
+                            double w = f.Width / 96.0 * f.DpiX;
+                            double h = f.Height / 96.0 * f.DpiY;
+                            LV.Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                item.ImageWidth = w; item.ImageHeight = h;
+                                item.UpdateSize(scale, fitWidth, maxSizeFactor, minFitPx);
+                                SmartFlowPanel.Current?.NotifyItemsChanged();
+                            }));
+                        }
+                    }
+                }
+                catch { /* leave placeholder size */ }
+            });
         }
         private void BtnBgColor_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
