@@ -288,38 +288,21 @@ namespace ImageViewer
 			_visibleList.Clear();
 			_visibleSet.Clear();
 
-			// 2) Collect only the elements inside the viewport band.
-			CollectVisible(ElementLocations.Root, top, bottom);
-
-			return;
-		}
-
-		// Iterative pre-order walk with Y-band subtree pruning. Duplicate-Y rows
-		// live in node.Values and are all visited whenever the node's own Y
-		// intersects the band. Own stack so it interleaves safely with VisitAll
-		// (row cache / hit-testing).
-		readonly List<Tuple<Rect, UIElement>> _visibleList = new List<Tuple<Rect, UIElement>>(100);
-		readonly Stack<TreeCollection.INode<Tuple<Rect, UIElement>>> _visStack
-			= new Stack<TreeCollection.INode<Tuple<Rect, UIElement>>>();
-
-		void CollectVisible(TreeCollection.INode<Tuple<Rect, UIElement>> root, double top, double bottom)
-		{
-			_visStack.Clear();
-			if (root != null) _visStack.Push(root);
-			while (_visStack.Count > 0)
-			{
-				var n = _visStack.Pop();
-				double y = n.Value.Item1.Y;        // node key == row Y
-				double h = n.Value.Item1.Height;  // row height
-
-				// Row intersects the viewport band -> take Value AND all duplicate-Y
-				// siblings stored in node.Values.
-				if (y <= bottom && y + h >= top)
+				if (isVisible)
+				{
+					var image = GetImage(t.Item2);
+					if (image == null) return;
+					image.LoadImage();
+					if (!_visibleSet.Add(t)) VisibleUIElements.Add(t);
+				}
+				else if (_visibleSet.Remove(t))
 				{
 					AddVisible(n.Value);
 					if (n.Values != null)
 						foreach (var v in n.Values) AddVisible(v);
 				}
+				return;
+			});
 
 				// Prune: left subtree holds keys < y (relevant only when the band
 				// starts below y); right subtree holds keys > y (relevant only when

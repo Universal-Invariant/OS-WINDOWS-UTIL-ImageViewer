@@ -1543,7 +1543,8 @@ namespace ImageViewer
             for (int i = 0; i < PendingBatchLimit; i++) pendingBatches.Wait();
 
             // Finalize on the UI thread
-            LV.Dispatcher.Invoke(() =>
+            //LV.Dispatcher.Invoke(() =>
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
                 SB_NumFilesRead.Text = numFilesRead.ToString();
                 SmartFlowPanel.Current?.InvalidateLocations();
@@ -1551,7 +1552,7 @@ namespace ImageViewer
                 CB_Path.Foreground = Brushes.Green;
                 CB_Path.FontWeight = FontWeights.Heavy;
                 CB_Path.FontStyle = FontStyles.Oblique;
-            });
+            }));
         }
 
         // PERF REGRESSION FIX (the "not actually lazy / 6k images load everything"
@@ -1582,10 +1583,8 @@ namespace ImageViewer
 
         private void ProcessBatchOnUIThread(List<string> filePaths, int totalFilesSoFar, SemaphoreSlim pendingBatches, double[] layout)
         {
-            // ---- background stage: construct + size everything off the UI thread ----
-            var ui = LV.Dispatcher;
-
-            Task.Run(() =>
+            //LV.Dispatcher.Invoke(() =>
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
                 double scaleFactor   = layout[0];
                 double layoutW       = layout[1];
