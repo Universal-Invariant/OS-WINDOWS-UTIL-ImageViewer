@@ -1658,7 +1658,7 @@ namespace ImageViewer
                 // Patch placeholder-sized images without blocking the UI.
                 foreach (var item in needDims)
                     ReloadDimensionsAsync(item, scaleFactor, fitWidth, maxSizeFactor, minFitPx);
-            });
+            }));
         }
 
         // Re-reads a failed header read on a pool thread, then applies the true
