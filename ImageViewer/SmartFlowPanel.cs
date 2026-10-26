@@ -280,6 +280,11 @@ namespace ImageViewer
 			double bottom = e.VerticalOffset + Math.Max(height, 0);
 
 			// 1) Unload everything that was visible last tick.
+			// NOTE: we must NOT clear _visibleSet here. The deferred Source
+			// assignment inside LazyImage.LoadImage() may still be pending on the
+			// dispatcher for elements leaving the viewport; keeping the set as a
+			// membership mirror of the list guarantees every tracked element gets
+			// exactly one UnLoadImage() and can never leak a loaded bitmap.
 			for (int i = 0; i < _visibleList.Count; i++)
 			{
 				var image = GetImage(_visibleList[i].Item2);
@@ -288,21 +293,40 @@ namespace ImageViewer
 			_visibleList.Clear();
 			_visibleSet.Clear();
 
-				if (isVisible)
-				{
-					var image = GetImage(t.Item2);
-					if (image == null) return;
-					image.LoadImage();
-					if (!_visibleSet.Add(t)) VisibleUIElements.Add(t);
-				}
-				else if (_visibleSet.Remove(t))
+			// 2) Collect only the elements inside the viewport band with a single
+			// iterative pre-order walk of the AVL tree, pruning whole subtrees
+			// outside [top, bottom] using BST ordering on the row-Y key.
+			CollectVisible(ElementLocations.Root, top, bottom);
+
+			return;
+		}
+
+		// Iterative pre-order walk with Y-band subtree pruning. Duplicate-Y rows
+		// live in node.Values and are all visited whenever the node's own Y
+		// intersects the band. Own stack so it interleaves safely with VisitAll
+		// (row cache / hit-testing).
+		readonly List<Tuple<Rect, UIElement>> _visibleList = new List<Tuple<Rect, UIElement>>(100);
+		readonly Stack<TreeCollection.INode<Tuple<Rect, UIElement>>> _visStack
+			= new Stack<TreeCollection.INode<Tuple<Rect, UIElement>>>();
+
+		void CollectVisible(TreeCollection.INode<Tuple<Rect, UIElement>> root, double top, double bottom)
+		{
+			_visStack.Clear();
+			if (root != null) _visStack.Push(root);
+			while (_visStack.Count > 0)
+			{
+				var n = _visStack.Pop();
+				double y = n.Value.Item1.Y;        // node key == row Y
+				double h = n.Value.Item1.Height;   // row height
+
+				// Row intersects the viewport band -> take Value AND all duplicate-Y
+				// siblings stored in node.Values.
+				if (y <= bottom && y + h >= top)
 				{
 					AddVisible(n.Value);
 					if (n.Values != null)
 						foreach (var v in n.Values) AddVisible(v);
 				}
-				return;
-			});
 
 				// Prune: left subtree holds keys < y (relevant only when the band
 				// starts below y); right subtree holds keys > y (relevant only when

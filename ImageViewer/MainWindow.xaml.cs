@@ -1541,10 +1541,18 @@ namespace ImageViewer
                 ProcessBatchOnUIThread(pathBatch, numFilesRead, pendingBatches, layout);
             }
 
-            // Wait for every queued batch to finish being added before we declare
-            // the load complete (the status-bar finalize below must not beat the
-            // last batches to the dispatcher queue).
-            for (int i = 0; i < PendingBatchLimit; i++) pendingBatches.Wait();
+            // Drain exactly the number of permits the in-flight batches still
+            // hold. Using a fixed loop of PendingBatchLimit was a BUG: after the
+            // producer's backpressure Wait() calls, the available count can be
+            // higher than the number of batches actually still outstanding, so
+            // the extra Wait() calls blocked forever ("stall on pendingBatches
+            // .Wait()") and each spurious Release() from a late UI stage pushed
+            // the count past the semaphore maximum -> SemaphoreFullException.
+            // CurrentCount is the precise, race-free answer: every outstanding
+            // batch will release exactly once, and no new batches are produced
+            // past this point.
+            int outstanding = PendingBatchLimit - pendingBatches.CurrentCount;
+            for (int i = 0; i < outstanding; i++) pendingBatches.Wait();
 
             // Finalize on the UI thread
             //LV.Dispatcher.Invoke(() =>
@@ -1597,6 +1605,16 @@ namespace ImageViewer
                 double maxSizeFactor = layout[4];
                 double minFitPx      = layout[5];
 
+                // Acquire a permit BEFORE building the batch. The semaphore is
+                // created full (PendingBatchLimit permits) and each UI stage
+                // releases one when done, so the available count can exceed the
+                // initial value if we acquired after BeginInvoke queued - that
+                // is exactly what produced the SemaphoreFullException on
+                // Release(). Acquiring first guarantees the count never rises
+                // above PendingBatchLimit: outstanding batches + available
+                // permits always sum to exactly PendingBatchLimit.
+                pendingBatches.Wait();
+
                 var items = new List<LazyImage>(filePaths.Count);
                 var needDims = new List<LazyImage>();
 
@@ -1611,12 +1629,11 @@ namespace ImageViewer
                     items.Add(item);
                 }
 
-                // ---- UI stage: pure add pass, no IO, non-blocking handoff ----
+                // ---- UI stage: pure add pass, no IO ----
                 // This lambda already runs on the UI thread (we were handed off
                 // via Dispatcher.BeginInvoke above), so add directly. The old
                 // code called "ui.BeginInvoke(...)" where "ui" was never defined
                 // and would not compile.
-                pendingBatches.Wait();
                 try
                 {
                     foreach (var item in items)
