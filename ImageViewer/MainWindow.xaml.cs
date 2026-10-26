@@ -171,6 +171,10 @@ namespace ImageViewer
         public MainWindow()
         {
             InitializeComponent();
+            // Expose the ListView to the flow panel so LazyImage instances
+            // created off-thread (batch loader passes host=null) can still find
+            // the UI Dispatcher when deferring bitmap loads out of layout passes.
+            SmartFlowPanel.Current.LVHost = LV;
 
             Current = this;
 
@@ -1609,7 +1613,10 @@ namespace ImageViewer
                 ui.BeginInvoke(DispatcherPriority.Background, new Action(() =>
                 {
                     foreach (var item in items)
+                    {
+                        item.LVHost = LV;   // dispatcher source for deferred LoadImage
                         LV.Items.Add(item);
+                    }
 
                     SB_NumFilesRead.Text = totalFilesSoFar.ToString();
 
