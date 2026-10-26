@@ -275,8 +275,8 @@ public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArra
 			// scroll or scrollbar drag. With 6k images that is hundreds of thousands of
 			// delegate invocations + band tests per gesture: UI-thread work that
 			// starves render and input. The AVL tree is keyed by row Y, so instead we:
-			//   1) unload the previously-visible elements (tracked in
-			//      _visibleList/_visibleSet - only ~tens of items), then
+			//   1) unload the previously-visible elements (tracked in the
+			//      double-buffered _prevVisible snapshot - only ~tens of items), then
 			//   2) walk the tree ONCE with subtree pruning: BST ordering on Y means a
 			//      node's left subtree holds only smaller Ys and its right subtree only
 			//      larger ones, so whole subtrees outside the viewport band are
@@ -311,7 +311,6 @@ public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArra
 		// live in node.Values and are all visited whenever the node's own Y
 		// intersects the band. Own stack so it interleaves safely with VisitAll
 		// (row cache / hit-testing).
-		readonly List<Tuple<Rect, UIElement>> _visibleList = new List<Tuple<Rect, UIElement>>(100);
 		readonly Stack<TreeCollection.INode<Tuple<Rect, UIElement>>> _visStack
 			= new Stack<TreeCollection.INode<Tuple<Rect, UIElement>>>();
 
@@ -319,6 +318,18 @@ public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArra
 		// collected band against the previous snapshot and only loads/unloads
 		// elements whose membership changed. Double-buffered so no per-tick
 		// allocations in steady state.
+		//
+		// REGRESSION FIX (images not loading + "tries to load the entire list"):
+		// the diff used to key membership on Tuple<Rect, UIElement>. Tuple
+		// equality is VALUE-based, and in this horizontal-wrap layout every
+		// element's Rect has X == 0 with identical Y/Width/Height within a row -
+		// so all siblings in a row collapsed onto ONE HashSet slot. Worse, each
+		// batch relayout shifts row Ys, so the stored "previous" tuple never
+		// equalled any newly collected tuple: the diff believed EVERY element had
+		// left the band and UnLoadImage()'d everything at each batch tick (blank
+		// images that never reloaded), while LoadImage() thrashed across the
+		// whole list. Membership is now keyed by the LazyImage instance itself -
+		// reference identity, immune to Rect churn from row shifts.
 		void CollectVisibleIncremental(double top, double bottom)
 		{
 			// Build the NEW visible set without touching any image.
@@ -326,43 +337,31 @@ public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArra
 			_newSet.Clear();
 			WalkBand(ElementLocations.Root, top, bottom);
 
-			// Left the band -> unload. (UnLoadImage is now idempotent-safe: it
-			// marks the element invisible so a queued deferred load cannot
-			// resurrect its bitmap.)
+			// Left the band -> unload. (UnLoadImage is idempotent-safe: it marks
+			// the element invisible so a queued deferred load cannot resurrect
+			// its bitmap.)
 			for (int i = 0; i < _prevVisible.Count; i++)
 			{
-				var t = _prevVisible[i];
-				if (!_newSet.Contains(t))
-				{
-					var image = GetImage(t.Item2);
-					if (image != null) image.UnLoadImage();
-				}
+				var img = _prevVisible[i];
+				if (!_newSet.Contains(img))
+					img.UnLoadImage();
 			}
 
-			// Entered the band -> load.
+			// Entered the band -> load. LoadImage() is cheap/no-op when a real
+			// bitmap is already assigned, so even a spurious re-issue (e.g. the
+			// first sweep after a relayout where prev was reset) cannot blank or
+			// double-decode anything.
 			for (int i = 0; i < _newVisible.Count; i++)
 			{
-				var t = _newVisible[i];
-				if (!_prevSet.Contains(t))
-				{
-					var image = GetImage(t.Item2);
-					if (image != null) image.LoadImage();
-				}
+				var img = _newVisible[i];
+				if (!_prevSet.Contains(img))
+					img.LoadImage();
 			}
 
 			// Promote the snapshot.
 			var tmpL = _prevVisible; var tmpS = _prevSet;
 			_prevVisible = _newVisible; _prevSet = _newSet;
 			_newVisible = tmpL; _newSet = tmpS;
-
-			// Keep the legacy members mirrored for any external reader.
-			_visibleList.Clear();
-			_visibleSet.Clear();
-			for (int i = 0; i < _prevVisible.Count; i++)
-			{
-				_visibleList.Add(_prevVisible[i]);
-				_visibleSet.Add(_prevVisible[i]);
-			}
 		}
 
 		// Pure geometry walk: collects every element whose ROW intersects the
@@ -401,14 +400,20 @@ public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArra
 
 		void AddToNew(Tuple<Rect, UIElement> t)
 		{
-			if (_newSet.Add(t)) _newVisible.Add(t);
+			var img = GetImage(t.Item2);
+			if (img == null) return;
+			if (_newSet.Add(img)) _newVisible.Add(img);
 		}
 
-		// Double-buffered snapshots for the incremental diff.
-		List<Tuple<Rect, UIElement>> _newVisible = new List<Tuple<Rect, UIElement>>(100);
-		HashSet<Tuple<Rect, UIElement>> _newSet = new HashSet<Tuple<Rect, UIElement>>();
-		List<Tuple<Rect, UIElement>> _prevVisible = new List<Tuple<Rect, UIElement>>(100);
-		HashSet<Tuple<Rect, UIElement>> _prevSet = new HashSet<Tuple<Rect, UIElement>>();
+		// Double-buffered snapshots for the incremental diff. Keyed by LazyImage
+		// INSTANCE (reference identity) rather than Tuple<Rect, UIElement>: value
+		// equality on those tuples made every same-row sibling collide onto one
+		// HashSet entry and made post-relayout diffs see false membership changes
+		// (see REGRESSION FIX note above).
+		List<LazyImage> _newVisible = new List<LazyImage>(100);
+		HashSet<LazyImage> _newSet = new HashSet<LazyImage>();
+		List<LazyImage> _prevVisible = new List<LazyImage>(100);
+		HashSet<LazyImage> _prevSet = new HashSet<LazyImage>();
 
 		void ResetVisibilityTracking()
 		{
@@ -418,13 +423,7 @@ public void InvalidateLocations() { _invalidatedMeasure = true; _invalidatedArra
 			// stale entries would linger in the diff forever.
 			_newVisible.Clear(); _newSet.Clear();
 			_prevVisible.Clear(); _prevSet.Clear();
-			_visibleList.Clear(); _visibleSet.Clear();
 		}
-
-		// Fast-membership mirror of _visibleList (kept in sync by the paths
-		// above; used by VisitAll-based helpers elsewhere).
-		readonly HashSet<Tuple<Rect, UIElement>> _visibleSet
-			= new HashSet<Tuple<Rect, UIElement>>();
 
 		// Extract the LazyImage from a child element. Children are either the
 		// LazyImages themselves or ListViewItem containers wrapping them; both

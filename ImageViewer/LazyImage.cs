@@ -316,6 +316,12 @@ namespace ImageViewer
 			// every LazyImage occupies its slot but paints NOTHING. Defer the
 			// Source assignment to the next dispatcher turn (after layout completes)
 			// at Input priority so the pixels still arrive within milliseconds.
+			// The panel considers this image inside the viewport band from the
+			// moment LoadImage() is called - set BEFORE the deferred decode so
+			// apply()'s visibility re-check passes. (Previously initialised to
+			// true globally, which combined with the diff's first-sweep unload
+			// aborted every queued decode - see REGRESSION FIX note in apply().)
+			_shouldBeVisible = true;
 			if ((Source == null || _isPlaceholder) && _headerReadOk && !_loadPending)
 			{
 				_loadPending = true;
@@ -328,6 +334,18 @@ namespace ImageViewer
 					// Re-check laziness flags: the image may have been unloaded
 					// (scrolled away) between scheduling and execution - in that
 					// case the pending load must NOT resurrect the bitmap.
+					//
+					// REGRESSION FIX (images never appeared): _shouldBeVisible was
+					// initialised to true so an element could be "visible" without
+					// anyone ever calling LoadImage(). The panel's incremental diff
+					// now starts from EMPTY snapshots after every relayout (folder
+					// load fires one ScrollChanged per batch), so the very first
+					// sweep unloads everything in view - setting the flag false -
+					// and every queued decode aborted here. Result: permanent
+					// placeholders, "no images loading". Defaulting to false makes
+					// the first sweep a no-op (nothing tracked yet) and the
+					// matching load pass the sole thing that marks elements
+					// visible and decodes them.
 					if (!_shouldBeVisible) return;
 					if ((Source != null && !_isPlaceholder) || !_headerReadOk) return;
 					var bm = new BitmapImage();
@@ -360,7 +378,7 @@ namespace ImageViewer
 		// an element that leaves the band can never have a queued load resurrect
 		// its bitmap afterwards.
 		bool _isPlaceholder = false;   // Source holds the tiny 1x1 placeholder
-		bool _shouldBeVisible = true;  // panel considers us inside the band
+		bool _shouldBeVisible = false; // panel has explicitly loaded us into the band
 		bool _loadPending = false;     // a deferred Source assignment is queued
 
 		public void UnLoadImage()
