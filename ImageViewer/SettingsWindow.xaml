@@ -1,0 +1,277 @@
+﻿<Window x:Class="ImageViewer.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings" Width="540" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource Bg.Window}" Foreground="{DynamicResource Fg.Primary}"
+        FontFamily="Segoe UI" FontSize="12" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+    <Window.Resources>
+        <Style x:Key="SectionHeader" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource Bg.Chrome}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Border.Subtle}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="16,14"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,6,12,6"/>
+        </Style>
+        <Style x:Key="Value" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="{DynamicResource Fg.Secondary}"/>
+            <Setter Property="Margin" Value="10,0,0,0"/>
+            <Setter Property="Width" Value="56"/>
+        </Style>
+        <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="Margin" Value="0,5"/>
+        </Style>
+        <!-- Segmented choice (theme, transparency background) -->
+        <Style x:Key="Segment" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource Fg.Primary}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="bd" Background="{DynamicResource Bg.Control}" BorderBrush="{DynamicResource Border.Control}"
+                                BorderThickness="1" CornerRadius="5" Padding="12,4" Margin="0,0,6,0">
+                            <ContentPresenter HorizontalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource Bg.ControlHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource Accent.Subtle}"/>
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="18,4,18,16">
+            <Button Name="Btn_OK" Content="Save" Margin="0,0,8,0" IsDefault="True" Click="Btn_OK_Click"/>
+            <Button Name="Btn_Cancel" Content="Cancel" IsCancel="True" Click="Btn_Cancel_Click"/>
+        </StackPanel>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,16,18,0">
+        <StackPanel>
+
+        <!-- ===== Browsing ===== -->
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <TextBlock Text="Browsing" Style="{StaticResource SectionHeader}"/>
+                <CheckBox Name="CHK_Recurse" Content="Include subfolders"/>
+                <CheckBox Name="CHK_AutoRefresh" Content="Reload automatically when files are added or removed"
+                          ToolTip="Off: the refresh button turns red and waits for you to click it. On: the folder reloads automatically after a short quiet period (can be slow for very large folders)."/>
+                <CheckBox Name="CHK_OpenOnDblClick" Content="Double-click opens images in the default app"
+                          ToolTip="On: double-clicking an image opens the file with Windows' default app for that type. Off: double-click shows the built-in preview (Space always does)."/>
+                <CheckBox Name="CHK_RememberPosition" Content="Remember where I was in each folder"
+                          ToolTip="Reopening a folder scrolls back to the image you were looking at (handy for long comics or scans)."/>
+                <CheckBox Name="CHK_ExplorerMenu" Content="Add &quot;Open in Image Viewer&quot; to Explorer's right-click menu"
+                          ToolTip="For folders and images, current user only. On Windows 11 it is under &quot;Show more options&quot;. Points to this copy of the program."/>
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Slideshow interval" Style="{StaticResource Label}"/>
+                    <Slider Grid.Column="1" Name="SL_Slideshow" Minimum="1" Maximum="30" Value="4" TickFrequency="1"
+                            IsSnapToTickEnabled="True" VerticalAlignment="Center" ValueChanged="SL_Slideshow_ValueChanged"/>
+                    <TextBlock Grid.Column="2" Name="TB_Slideshow" Text="4 s" Style="{StaticResource Value}"/>
+                </Grid>
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Auto-advance interval (Ctrl+Space)" Style="{StaticResource Label}"
+                               ToolTip="Ctrl+Space in the grid scrolls one screen - in book view turns one page - after each interval. Esc or Ctrl+Space stops."/>
+                    <Slider Grid.Column="1" Name="SL_AutoAdvance" Minimum="1" Maximum="60" Value="8" TickFrequency="1"
+                            IsSnapToTickEnabled="True" VerticalAlignment="Center" ValueChanged="SL_AutoAdvance_ValueChanged"/>
+                    <TextBlock Grid.Column="2" Name="TB_AutoAdvance" Text="8 s" Style="{StaticResource Value}"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- ===== Layout ===== -->
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <TextBlock Text="Layout" Style="{StaticResource SectionHeader}"/>
+                <CheckBox Name="CHK_FitToWidth" Content="Book view: fit large images to the window width"
+                          ToolTip="Every image at least as wide as the threshold below is scaled so its width matches the window width. Images of similar size line up like pages of a book."/>
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Book view: minimum image size" Style="{StaticResource Label}"/>
+                    <Slider Grid.Row="0" Grid.Column="1" Name="SL_MinFitPx" Minimum="0" Maximum="2000" Value="500"
+                            TickFrequency="50" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                            ValueChanged="SL_MinFitPx_ValueChanged"
+                            ToolTip="Only images at least this large are scaled up to the window width in book view; smaller ones (icons) keep their scale and flow in between."/>
+                    <TextBlock Grid.Row="0" Grid.Column="2" Name="TB_MinFitPx" Text="500 px" Style="{StaticResource Value}"/>
+
+                    <TextBlock Grid.Row="1" Text="Largest image (% of window)" Style="{StaticResource Label}"/>
+                    <Slider Grid.Row="1" Grid.Column="1" Name="SL_MaxSize" Minimum="10" Maximum="200" Value="100"
+                            TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                            ValueChanged="SL_MaxSize_ValueChanged"
+                            ToolTip="Images bigger than this fraction of the window are shrunk to fit before scaling (takes effect for newly loaded folders)."/>
+                    <TextBlock Grid.Row="1" Grid.Column="2" Name="TB_MaxSize" Text="100 %" Style="{StaticResource Value}"/>
+
+                    <TextBlock Grid.Row="2" Text="Default scale" Style="{StaticResource Label}"/>
+                    <TextBox Grid.Row="2" Grid.Column="1" Name="TB_Scale" Width="70" HorizontalAlignment="Left" Margin="0,6"
+                             VerticalContentAlignment="Center" TextChanged="TB_Scale_TextChanged"
+                             ToolTip="0.1 - 4.0 (1.0 = 100%)"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- ===== Scrolling ===== -->
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <TextBlock Text="Row scrolling" Style="{StaticResource SectionHeader}"/>
+                <TextBlock Text="Applies when the &quot;scroll one row at a time&quot; toolbar toggle is on."
+                           Foreground="{DynamicResource Fg.Secondary}" Margin="0,-4,0,6" TextWrapping="Wrap"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Rows per wheel notch" Style="{StaticResource Label}"/>
+                    <Slider Grid.Row="0" Grid.Column="1" Name="SL_NotchRows" Minimum="1" Maximum="5" Value="1"
+                            TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                            ValueChanged="SL_NotchRows_ValueChanged"
+                            ToolTip="How many image rows (or page steps inside a tall book page) one full wheel notch moves. Touchpad deltas accumulate until they add up to a full notch."/>
+                    <TextBlock Grid.Row="0" Grid.Column="2" Name="TB_NotchRows" Text="1" Style="{StaticResource Value}"/>
+
+                    <TextBlock Grid.Row="1" Text="Overlap when paging tall images" Style="{StaticResource Label}"/>
+                    <Slider Grid.Row="1" Grid.Column="1" Name="SL_Undershoot" Minimum="0" Maximum="50" Value="10"
+                            TickFrequency="5" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                            ValueChanged="SL_Undershoot_ValueChanged"
+                            ToolTip="When paging through an image taller than the window, each notch moves one window height MINUS this overlap so a strip of the previous screen stays visible."/>
+                    <TextBlock Grid.Row="1" Grid.Column="2" Name="TB_Undershoot" Text="10 %" Style="{StaticResource Value}"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- ===== Profiles ===== -->
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <TextBlock Text="Profiles" Style="{StaticResource SectionHeader}"/>
+                <TextBlock Foreground="{DynamicResource Fg.Secondary}" Margin="0,-4,0,6" TextWrapping="Wrap"
+                           Text="Keep separate settings - folder, window size and state, scale, view options - for each place the viewer is opened. A new place starts as a copy of the last one used."/>
+                <CheckBox Name="CHK_PerMonitor" Content="Separate settings for each monitor"/>
+                <CheckBox Name="CHK_PerDesktop" Content="Separate settings for each virtual desktop"/>
+                <TextBlock Name="TB_CurrentPlace" Foreground="{DynamicResource Fg.Secondary}" Margin="0,8,0,8" TextWrapping="Wrap"/>
+                <TextBlock Text="Saved profiles" Margin="0,0,0,4"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <ListBox Name="LB_Profiles" Height="230" Background="{DynamicResource Bg.Control}"
+                             BorderBrush="{DynamicResource Border.Control}" Foreground="{DynamicResource Fg.Primary}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="bd" Background="Transparent" Padding="8,4" CornerRadius="4">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Bg.ControlHover}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Accent.Subtle}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+                    <Button Grid.Column="1" Name="Btn_ForgetProfile" Content="Forget" Margin="8,0,0,0" VerticalAlignment="Top"
+                            Click="Btn_ForgetProfile_Click" ToolTip="Delete the selected profile. The place starts from your most recent settings next time."/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- ===== Appearance ===== -->
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <TextBlock Text="Appearance" Style="{StaticResource SectionHeader}"/>
+                <CheckBox Name="CHK_ShowStatusBar" Content="Show the status bar"/>
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Theme" Style="{StaticResource Label}"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <RadioButton Name="RB_ThemeDark" GroupName="theme" Content="Dark" Style="{StaticResource Segment}"/>
+                        <RadioButton Name="RB_ThemeLight" GroupName="theme" Content="Light" Style="{StaticResource Segment}"/>
+                        <RadioButton Name="RB_ThemeSystem" GroupName="theme" Content="System" Style="{StaticResource Segment}"
+                                     ToolTip="Follow the Windows app mode"/>
+                    </StackPanel>
+                    <TextBlock Grid.Row="1" Text="Behind transparent images" Style="{StaticResource Label}"/>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4"
+                                ToolTip="More colors: the swatch button in the toolbar (or B / Shift+B) cycles checkerboard, black, white, dark red, dark green and dark blue">
+                        <RadioButton Name="RB_TransNone" GroupName="trans" Content="Nothing" Style="{StaticResource Segment}"/>
+                        <RadioButton Name="RB_TransChecker" GroupName="trans" Content="Checkers" Style="{StaticResource Segment}"/>
+                        <RadioButton Name="RB_TransLight" GroupName="trans" Content="Light" Style="{StaticResource Segment}"/>
+                        <RadioButton Name="RB_TransDark" GroupName="trans" Content="Dark" Style="{StaticResource Segment}"/>
+                    </StackPanel>
+                </Grid>
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Image background" Style="{StaticResource Label}"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Border Name="BDR_Color" Width="44" Height="24" BorderBrush="{DynamicResource Border.Control}"
+                                BorderThickness="1" CornerRadius="5"/>
+                        <Button Content="Change…" Margin="8,0,0,0" Click="BtnPickColor_Click"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>
